@@ -1,6 +1,7 @@
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 local waitForInput = require(script.Parent.utils.waitForInput)
 local mouseUtils = require(script.Parent.utils.mouseUtils)
 local player = Players.LocalPlayer
@@ -15,11 +16,15 @@ local snapIndicatorModel = models:WaitForChild("SnapIndicator")
 
 local BUILD_REACH = 40
 local MAX_PIPE_LENGTH = 20
-local MIN_PIPE_HINGE_ANGLE = math.rad(80)
+local MIN_PIPE_HINGE_ANGLE = math.rad(85)
 local PIPE_KEYBIND = Enum.KeyCode.Z
 local CANCEL_KEYBIND = Enum.KeyCode.Escape
-local BLUEPRINT_TRANSPARENCY = 0.5
-
+local BLUEPRINT_TRANSPARENCY = 0.7
+local PIPE_COLORS = {
+    ['default'] = BrickColor.new("Medium brown"),
+    ['hologramValid'] = BrickColor.new("Shamrock"),
+    ['hologramInvalid'] = BrickColor.new("Burgundy")
+}
 
 local snapIndicator: Model?
 function updateSnapIndicator(pos: Vector3?)
@@ -46,7 +51,7 @@ end
 
 
 local pipeBlueprint: Model?
-function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startVec: Vector3?, endVec: Vector3?): boolean
+function updatePipeBpShape(startPos: Vector3?, endPos: Vector3?, startVec: Vector3?, endVec: Vector3?): boolean
     -- The entire workspace state of pipeBlueprint is updated to match the source of truth.
     -- This prevents accumulative errors of any kind.
 
@@ -63,7 +68,7 @@ function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startVec: Vec
         --     1. specify transparency
         --     2. disable colliders
         pipeBlueprint = pipeModel:Clone()
-        pipeBlueprint.Parent = workspace
+        pipeBlueprint.Parent = Workspace
         
         -- :GetDescendants() is recursive
         -- not a performance concern: low depth
@@ -99,7 +104,7 @@ function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startVec: Vec
     local tailJointPos = tailPart.Joint.Position
     
     -- adjust pipe shaft to fit distance
-    local shaftVec = tailJointPos - headJointPos
+    local shaftVec = headJointPos - tailJointPos
     local pipeLength = shaftVec.Magnitude
     local shaftPart: BasePart = pipeBlueprint.Shaft
     shaftPart.Size = Vector3.new(pipeLength, shaftPart.Size.Y, shaftPart.Size.Z)
@@ -108,7 +113,7 @@ function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startVec: Vec
     
     -- checking for validity of placement
     -- TODO: VULNERABILITY: placement validity needs to be moved to server side
-
+    
     if pipeLength > MAX_PIPE_LENGTH then
         return false
     end
@@ -119,7 +124,6 @@ function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startVec: Vec
     --      |        |   (endVec)
     -- (startVec)
     
-    -- dot product is invariant to orientation
     if shaftVec.Unit:Dot(-startVec) < math.cos(MIN_PIPE_HINGE_ANGLE) then
         return false
     end
@@ -129,6 +133,20 @@ function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startVec: Vec
     end
     
     return true
+end
+
+
+function updatePipeBpColor(valid: boolean)
+    if pipeBlueprint == nil then return end
+
+    -- pipe "valid" will be colored standard
+    local color = valid and PIPE_COLORS.default or PIPE_COLORS.hologramInvalid
+
+    for _, part: BasePart in pairs(pipeBlueprint:GetDescendants()) do
+        if not part:IsA("BasePart") then continue end
+        if part:GetAttribute("doNotRecolor") == true then continue end
+        part.BrickColor = color
+    end
 end
 
 
@@ -148,6 +166,11 @@ function placePipe()
             weld.Parent = part
             weld.Part0 = primaryPart
             weld.Part1 = part
+            
+            -- return colorable parts to default coloring
+            if part:GetAttribute("doNotRecolor") ~= true then
+                part.BrickColor = PIPE_COLORS.default
+            end
         end
     end
     
@@ -177,34 +200,33 @@ function getMouseTarget()
         return nil
     end
     
-    local pos = raycastResult.Position
-    
-    if (pos - player.Character.PrimaryPart.Position).Magnitude > BUILD_REACH then
-        return nil
-    end
-    
-    return pos
+    return raycastResult.Position
 end
 
 
 function buildingCoro()
+    -- runs for the duration of the pipe placement process.
+    -- maintains relevant event handlers and state that are
+    -- useful this algorithm alone.
+
     print("Good morning!") -- TODO: rm
     local pipeStart: Vector3?
     local pipeEnd: Vector3?
     local mouse: Vector3?
     
+    local pipeShapeValid = true
+    
+    -- TODO: resources like these need to be externalized for automatic cleanup
     local connection
     connection = UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if mouse == nil then
-                return
-            end
+            if mouse == nil then return end
 
             print('click', pipeStart, pipeEnd)
             if pipeStart == nil then
                 pipeStart = mouse
                 updateSnapIndicator(nil)
-            else
+            elseif pipeShapeValid then
                 pipeEnd = mouse
                 connection:Disconnect()
             end
@@ -214,11 +236,16 @@ function buildingCoro()
     print('beginning loop')
     while pipeStart == nil or pipeEnd == nil do
         mouse = getMouseTarget()
-        
+
         if pipeStart == nil then
             updateSnapIndicator(mouse)
         else
-            updatePipeBlueprint(pipeStart, mouse)
+            local nextValid = updatePipeBpShape(pipeStart, mouse)
+        
+            if nextValid ~= pipeShapeValid then
+                updatePipeBpColor(nextValid)
+                pipeShapeValid = nextValid
+            end
         end
 
         task.wait() -- yield to next frame
@@ -235,7 +262,9 @@ local buildThread: thread? = nil
 -- kill a running coroutine
 function tryKillCoro()
     if buildThread ~= nil and coroutine.status(buildThread) == "running" then
-        coroutine.close(buildThread)
+        task.cancel(buildThread)
+        pipeBlueprint:Destroy()
+        pipeBlueprint = nil
     end
 end
 
@@ -245,8 +274,7 @@ end
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == PIPE_KEYBIND then
         tryKillCoro()
-        buildThread = coroutine.create(buildingCoro)
-        coroutine.resume(buildThread)
+        buildThread = task.spawn(buildingCoro)
     end
 end)
 
