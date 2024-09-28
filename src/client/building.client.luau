@@ -6,7 +6,6 @@ local mouseUtils = require(script.Parent.utils.mouseUtils)
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
-
 -- TODO: these blocking calls should be moved into corresponding coroutines.
 --     OK for now because almost all systems depend on these resources
 --     so the bottleneck is not incurring a strong performance hit.
@@ -15,9 +14,11 @@ local pipeModel = models:WaitForChild("Pipe")
 local snapIndicatorModel = models:WaitForChild("SnapIndicator")
 
 local BUILD_REACH = 40
+local MAX_PIPE_LENGTH = 20
 local PIPE_KEYBIND = Enum.KeyCode.Z
 local CANCEL_KEYBIND = Enum.KeyCode.Escape
 local BLUEPRINT_TRANSPARENCY = 0.5
+
 
 local snapIndicator: Model?
 function updateSnapIndicator(pos: Vector3?)
@@ -42,8 +43,9 @@ function updateSnapIndicator(pos: Vector3?)
     -- TODO: color based on snap status
 end
 
+
 local pipeBlueprint: Model?
-function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?)
+function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startLook: Vector3?, endLook: Vector3?)
     -- This is function is similar an object.The pipeBlueprint
     -- model is updated to match the source of truth (this function).
 
@@ -63,6 +65,7 @@ function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?)
         pipeBlueprint.Parent = workspace
         
         -- :GetDescendants() is recursive
+        -- not a performance concern: low depth
         -- TODO: replace part assemblies with unified meshes
         for _, part in pairs(pipeBlueprint:GetDescendants()) do
             if part:IsA("BasePart") then
@@ -72,22 +75,57 @@ function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?)
         end
     end
     
-    -- note: this will run every frame as the mouse moves
-    -- pipeBlueprint origin is at the startHead.tip
+    -- this will run every frame as the mouse moves
+    -- CRTICIAL ZONE:
 
-    -- apparently, the front direction of the model is fixed and arbitrary :|
-    -- so we need to manually apply a correction rotation
-    pipeBlueprint.PrimaryPart.CFrame = CFrame.new(startPos, endPos) * CFrame.Angles(0, -math.pi/2, 0)
+    startLook = startLook or (endPos - startPos).Unit
+    endLook = endLook or -startLook
     
-    -- scale the pipe to fit the distance
-    local shaft = pipeBlueprint:FindFirstChild("Shaft")
-    local pipeLength = math.clamp((endPos - startPos).Magnitude, BUILD_REACH)
-    shaft.Size = Vector3.new(pipeLength, shaft.Size.Y, shaft.Size.Z)
+    local headPart: BasePart = pipeBlueprint.Head
+    local tailPart: BasePart = pipeBlueprint.Tail
+
+    headPart:PivotTo(CFrame.lookAlong(startPos, startLook))
+    -- TODO: impl max pipe len
+    tailPart:PivotTo(CFrame.lookAlong(endPos, endLook))
+    
+    local headJointPos = headPart.Joint.Position
+    local tailJointPos = tailPart.Joint.Position
+    
+    -- adjust pipe shaft to fit distance
+    local pipeLength = (headJointPos - tailJointPos).Magnitude
+    local shaftPart: BasePart = pipeBlueprint.Shaft
+    shaftPart.Size = Vector3.new(pipeLength, shaftPart.Size.Y, shaftPart.Size.Z)
+    local shaftCenter = (headJointPos + tailJointPos) / 2
+    shaftPart:PivotTo(CFrame.new(shaftCenter, tailJointPos))
 end
 
-function placePipe(startPos: Vector3, endPos: Vector3, startAngle: number, endAngle: number)
-    error("Not implemented")
+
+function placePipe()
+    local primaryPart = pipeBlueprint.PrimaryPart
+
+    -- Solidify the hologram
+    for _, part in pairs(pipeBlueprint:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = true
+            part.Transparency = 0
+            -- let each individual part be unachored and instead form an assembly
+            part.Anchored = false
+            
+            -- let each part be welded to the primary part
+            local weld= Instance.new('WeldConstraint')
+            weld.Parent = part
+            weld.Part0 = primaryPart
+            weld.Part1 = part
+        end
+    end
+    
+    -- TODO: pipe anchor state needs to be based on snapping
+    primaryPart.Anchored = true
+    
+    -- this prevents the hologram manager from altering finished pipes
+    pipeBlueprint = nil
 end
+
 
 function getMouseTarget()
     -- Get mouse position in 3D space
@@ -97,18 +135,24 @@ function getMouseTarget()
     -- Cast the ray
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = { player, snapIndicator, pipeBlueprint }
+    raycastParams.FilterDescendantsInstances = { player.Character, snapIndicator, pipeBlueprint }
     raycastParams.IgnoreWater = true
     
-    local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * BUILD_REACH, raycastParams)
+    local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
     
     if raycastResult == nil then
         return nil
     end
     
-    return raycastResult.Position
+    local pos = raycastResult.Position
+    
+    if (pos - player.Character.PrimaryPart.Position).Magnitude > BUILD_REACH then
+        return nil
+    end
+    
+    return pos
 end
-        
+
 
 function buildingCoro()
     print("Good morning!") -- TODO: rm
@@ -144,10 +188,12 @@ function buildingCoro()
     end
 
     print("Pipe built!") -- TODO: rm
-    placePipe(pipeStart, pipeEnd)
+    placePipe()
 end
 
+
 local buildThread: thread? = nil
+
 
 -- kill a running coroutine
 function tryKillCoro()
@@ -155,6 +201,7 @@ function tryKillCoro()
         coroutine.close(buildThread)
     end
 end
+
 
 -- dead? --> start coroutine
 -- alive? --> kill & restart coroutine
@@ -165,6 +212,7 @@ UserInputService.InputBegan:Connect(function(input)
         coroutine.resume(buildThread)
     end
 end)
+
 
 UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == CANCEL_KEYBIND then
