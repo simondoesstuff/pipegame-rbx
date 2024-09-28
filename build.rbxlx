@@ -80,18 +80,18 @@
 			<Properties>
 				<BinaryString name="AttributesSerialize"></BinaryString>
 				<CoordinateFrame name="CFrame">
-					<X>-249.704712</X>
-					<Y>17.5611057</Y>
-					<Z>210.014114</Z>
-					<R00>-0.99853754</R00>
-					<R01>0.0505759008</R01>
-					<R02>-0.0191039927</R02>
-					<R10>-1.86264515e-09</R10>
-					<R11>0.353360832</R11>
-					<R12>0.935487211</R12>
-					<R20>0.0540637001</R20>
-					<R21>0.934119105</R21>
-					<R22>-0.35284403</R22>
+					<X>-240.429428</X>
+					<Y>29.6521454</Y>
+					<Z>238.775391</Z>
+					<R00>0.835811198</R00>
+					<R01>0.299022049</R01>
+					<R02>-0.460440606</R02>
+					<R10>-1.49011612e-08</R10>
+					<R11>0.838663697</R11>
+					<R12>0.544649839</R12>
+					<R20>0.549017072</R20>
+					<R21>-0.455224425</R21>
+					<R22>0.700964391</R22>
 				</CoordinateFrame>
 				<Ref name="CameraSubject">null</Ref>
 				<token name="CameraType">0</token>
@@ -100,9 +100,9 @@
 				<float name="FieldOfView">70</float>
 				<token name="FieldOfViewMode">0</token>
 				<CoordinateFrame name="Focus">
-					<X>-249.666504</X>
-					<Y>15.6901302</Y>
-					<Z>210.719803</Z>
+					<X>-239.508545</X>
+					<Y>28.5628433</Y>
+					<Z>237.373459</Z>
 					<R00>1</R00>
 					<R01>0</R01>
 					<R02>0</R02>
@@ -1617,6 +1617,106 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 				</Properties>
 			</Item>
 		</Item>
+		<Item class="Part" referent="RBX2C099AABF68848A89C8B7B2F41D348CA">
+			<Properties>
+				<bool name="Anchored">true</bool>
+				<BinaryString name="AttributesSerialize"></BinaryString>
+				<float name="BackParamA">-0.5</float>
+				<float name="BackParamB">0.5</float>
+				<token name="BackSurface">0</token>
+				<token name="BackSurfaceInput">0</token>
+				<float name="BottomParamA">-0.5</float>
+				<float name="BottomParamB">0.5</float>
+				<token name="BottomSurface">0</token>
+				<token name="BottomSurfaceInput">0</token>
+				<CoordinateFrame name="CFrame">
+					<X>-189.599991</X>
+					<Y>7.69999981</Y>
+					<Z>197.799988</Z>
+					<R00>1</R00>
+					<R01>0</R01>
+					<R02>0</R02>
+					<R10>0</R10>
+					<R11>1</R11>
+					<R12>0</R12>
+					<R20>0</R20>
+					<R21>0</R21>
+					<R22>1</R22>
+				</CoordinateFrame>
+				<bool name="CanCollide">true</bool>
+				<bool name="CanQuery">true</bool>
+				<bool name="CanTouch">true</bool>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="CastShadow">true</bool>
+				<string name="CollisionGroup">Default</string>
+				<int name="CollisionGroupId">0</int>
+				<Color3uint8 name="Color3uint8">4292330906</Color3uint8>
+				<PhysicalProperties name="CustomPhysicalProperties">
+					<CustomPhysics>false</CustomPhysics>
+				</PhysicalProperties>
+				<bool name="DefinesCapabilities">false</bool>
+				<bool name="EnableFluidForces">true</bool>
+				<float name="FrontParamA">-0.5</float>
+				<float name="FrontParamB">0.5</float>
+				<token name="FrontSurface">0</token>
+				<token name="FrontSurfaceInput">0</token>
+				<UniqueId name="HistoryId">700c356b6e7a1b9e0708b3d90000a375</UniqueId>
+				<float name="LeftParamA">-0.5</float>
+				<float name="LeftParamB">0.5</float>
+				<token name="LeftSurface">0</token>
+				<token name="LeftSurfaceInput">0</token>
+				<bool name="Locked">false</bool>
+				<bool name="Massless">false</bool>
+				<token name="Material">256</token>
+				<string name="MaterialVariantSerialized"></string>
+				<string name="Name">Part</string>
+				<CoordinateFrame name="PivotOffset">
+					<X>0</X>
+					<Y>0</Y>
+					<Z>0</Z>
+					<R00>1</R00>
+					<R01>0</R01>
+					<R02>0</R02>
+					<R10>0</R10>
+					<R11>1</R11>
+					<R12>0</R12>
+					<R20>0</R20>
+					<R21>0</R21>
+					<R22>1</R22>
+				</CoordinateFrame>
+				<float name="Reflectance">0</float>
+				<float name="RightParamA">-0.5</float>
+				<float name="RightParamB">0.5</float>
+				<token name="RightSurface">0</token>
+				<token name="RightSurfaceInput">0</token>
+				<int name="RootPriority">0</int>
+				<Vector3 name="RotVelocity">
+					<X>0</X>
+					<Y>0</Y>
+					<Z>0</Z>
+				</Vector3>
+				<int64 name="SourceAssetId">-1</int64>
+				<BinaryString name="Tags"></BinaryString>
+				<float name="TopParamA">-0.5</float>
+				<float name="TopParamB">0.5</float>
+				<token name="TopSurface">0</token>
+				<token name="TopSurfaceInput">0</token>
+				<float name="Transparency">0</float>
+				<UniqueId name="UniqueId">700c356b6e7a1b9e0708b3d90000fb4d</UniqueId>
+				<Vector3 name="Velocity">
+					<X>0</X>
+					<Y>0</Y>
+					<Z>0</Z>
+				</Vector3>
+				<token name="formFactorRaw">1</token>
+				<token name="shape">1</token>
+				<Vector3 name="size">
+					<X>1.59999955</X>
+					<Y>15.3999996</Y>
+					<Z>28.3999996</Z>
+				</Vector3>
+			</Properties>
+		</Item>
 	</Item>
 	<Item class="SoundService" referent="6">
 		<Properties>
@@ -2121,8 +2221,8 @@ end
 
 local pipeBlueprint: Model?
 function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startLook: Vector3?, endLook: Vector3?)
-    -- This is function is similar an object.The pipeBlueprint
-    -- model is updated to match the source of truth (this function).
+    -- The entire workspace state of pipeBlueprint is updated to match the source of truth.
+    -- This prevents accumulative errors of any kind.
 
     if startPos == nil or endPos == nil then
         if pipeBlueprint ~= nil then
@@ -2187,7 +2287,7 @@ function placePipe()
             part.Anchored = false
             
             -- let each part be welded to the primary part
-            local weld= Instance.new('WeldConstraint')
+            local weld = Instance.new('WeldConstraint')
             weld.Parent = part
             weld.Part0 = primaryPart
             weld.Part1 = part
@@ -2238,6 +2338,10 @@ function buildingCoro()
     local connection
     connection = UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if mouse == nil then
+                return
+            end
+
             print('click', pipeStart, pipeEnd)
             if pipeStart == nil then
                 pipeStart = mouse
@@ -4113,7 +4217,7 @@ end]]></ProtectedString>
 					<token name="ModelStreamingMode">0</token>
 					<string name="Name">Pipe</string>
 					<bool name="NeedsPivotMigration">false</bool>
-					<Ref name="PrimaryPart">RBX76836F99D1FB4792B14AFF0A4E651628</Ref>
+					<Ref name="PrimaryPart">RBX1A3F1F4598064722970E0F4A42EAAE81</Ref>
 					<float name="ScaleFactor">1</float>
 					<int64 name="SourceAssetId">-1</int64>
 					<BinaryString name="Tags"></BinaryString>

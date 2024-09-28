@@ -15,6 +15,7 @@ local snapIndicatorModel = models:WaitForChild("SnapIndicator")
 
 local BUILD_REACH = 40
 local MAX_PIPE_LENGTH = 20
+local MIN_PIPE_HINGE_ANGLE = math.rad(80)
 local PIPE_KEYBIND = Enum.KeyCode.Z
 local CANCEL_KEYBIND = Enum.KeyCode.Escape
 local BLUEPRINT_TRANSPARENCY = 0.5
@@ -45,9 +46,9 @@ end
 
 
 local pipeBlueprint: Model?
-function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startLook: Vector3?, endLook: Vector3?)
-    -- This is function is similar an object.The pipeBlueprint
-    -- model is updated to match the source of truth (this function).
+function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startVec: Vector3?, endVec: Vector3?): boolean
+    -- The entire workspace state of pipeBlueprint is updated to match the source of truth.
+    -- This prevents accumulative errors of any kind.
 
     if startPos == nil or endPos == nil then
         if pipeBlueprint ~= nil then
@@ -78,25 +79,56 @@ function updatePipeBlueprint(startPos: Vector3?, endPos: Vector3?, startLook: Ve
     -- this will run every frame as the mouse moves
     -- CRTICIAL ZONE:
 
-    startLook = startLook or (endPos - startPos).Unit
-    endLook = endLook or -startLook
+    -- TODO: rm
+    startVec = Vector3.new(0, 0, 1)
+    endVec = -startVec
+
+    startVec = startVec or (endPos - startPos).Unit
+    startVec = startVec.Unit
+    endVec = endVec or -startVec
+    endVec = endVec.Unit
     
     local headPart: BasePart = pipeBlueprint.Head
     local tailPart: BasePart = pipeBlueprint.Tail
 
-    headPart:PivotTo(CFrame.lookAlong(startPos, startLook))
+    headPart:PivotTo(CFrame.lookAlong(startPos, startVec))
     -- TODO: impl max pipe len
-    tailPart:PivotTo(CFrame.lookAlong(endPos, endLook))
+    tailPart:PivotTo(CFrame.lookAlong(endPos, endVec))
     
     local headJointPos = headPart.Joint.Position
     local tailJointPos = tailPart.Joint.Position
     
     -- adjust pipe shaft to fit distance
-    local pipeLength = (headJointPos - tailJointPos).Magnitude
+    local shaftVec = tailJointPos - headJointPos
+    local pipeLength = shaftVec.Magnitude
     local shaftPart: BasePart = pipeBlueprint.Shaft
     shaftPart.Size = Vector3.new(pipeLength, shaftPart.Size.Y, shaftPart.Size.Z)
     local shaftCenter = (headJointPos + tailJointPos) / 2
     shaftPart:PivotTo(CFrame.new(shaftCenter, tailJointPos))
+    
+    -- checking for validity of placement
+    -- TODO: VULNERABILITY: placement validity needs to be moved to server side
+
+    if pipeLength > MAX_PIPE_LENGTH then
+        return false
+    end
+    
+    --      (shaftVec)
+    --      --------->
+    --      ^        ^
+    --      |        |   (endVec)
+    -- (startVec)
+    
+    -- dot product is invariant to orientation
+    if shaftVec.Unit:Dot(-startVec) < math.cos(MIN_PIPE_HINGE_ANGLE) then
+        return false
+    end
+    
+    if shaftVec.Unit:Dot(endVec) < math.cos(MIN_PIPE_HINGE_ANGLE) then
+        return false
+    end
+    
+    return true
 end
 
 
@@ -112,7 +144,7 @@ function placePipe()
             part.Anchored = false
             
             -- let each part be welded to the primary part
-            local weld= Instance.new('WeldConstraint')
+            local weld = Instance.new('WeldConstraint')
             weld.Parent = part
             weld.Part0 = primaryPart
             weld.Part1 = part
@@ -135,7 +167,8 @@ function getMouseTarget()
     -- Cast the ray
     local raycastParams = RaycastParams.new()
     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = { player.Character, snapIndicator, pipeBlueprint }
+    -- snapIndicator does not to be ignored because it can not be queried
+    raycastParams.FilterDescendantsInstances = { player.Character, pipeBlueprint }
     raycastParams.IgnoreWater = true
     
     local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
@@ -163,6 +196,10 @@ function buildingCoro()
     local connection
     connection = UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if mouse == nil then
+                return
+            end
+
             print('click', pipeStart, pipeEnd)
             if pipeStart == nil then
                 pipeStart = mouse
