@@ -1,5 +1,7 @@
 local UserInputService = game:GetService("UserInputService")
 
+-- TODO: utils: waitFor (event), once, all, any
+
 function waitForInput(keyCode: Enum.KeyCode)
     local event = Instance.new("BindableEvent")
     

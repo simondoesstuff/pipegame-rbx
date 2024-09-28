@@ -27,7 +27,7 @@ local PIPE_COLORS = {
 }
 
 local snapIndicator: Model?
-function updateSnapIndicator(pos: Vector3?)
+function updateSnapIndicator(pos: Vector3?, snap: boolean?)
     -- This is function is similar an object. It is the sole maintainer
     -- of the snap indicator model. The workspace state is updated to match
     -- the source of truth (this function).
@@ -46,16 +46,16 @@ function updateSnapIndicator(pos: Vector3?)
     end
     
     snapIndicator:MoveTo(pos)
-    -- TODO: color based on snap status
+    snapIndicator.PrimaryPart.BrickColor = snap and PIPE_COLORS.hologramValid or PIPE_COLORS.default
 end
 
 
 local pipeBlueprint: Model?
-function updatePipeBpShape(startPos: Vector3?, endPos: Vector3?, startVec: Vector3?, endVec: Vector3?): boolean
+function updatePipeBpShape(headSnap: Snap?, tailSnap: Snap?): boolean
     -- The entire workspace state of pipeBlueprint is updated to match the source of truth.
     -- This prevents accumulative errors of any kind.
 
-    if startPos == nil or endPos == nil then
+    if headSnap == nil or tailSnap == nil then
         if pipeBlueprint ~= nil then
             pipeBlueprint:Destroy()
             pipeBlueprint = nil
@@ -75,7 +75,9 @@ function updatePipeBpShape(startPos: Vector3?, endPos: Vector3?, startVec: Vecto
         -- TODO: replace part assemblies with unified meshes
         for _, part in pairs(pipeBlueprint:GetDescendants()) do
             if part:IsA("BasePart") then
+                if part.CollisionGroup == "PipeSnap" then continue end
                 part.CanCollide = false
+                part.CastShadow = false 
                 part.Transparency = BLUEPRINT_TRANSPARENCY
             end
         end
@@ -83,29 +85,54 @@ function updatePipeBpShape(startPos: Vector3?, endPos: Vector3?, startVec: Vecto
     
     -- this will run every frame as the mouse moves
     -- CRTICIAL ZONE:
-
-    -- TODO: rm
-    startVec = Vector3.new(0, 0, 1)
-    endVec = -startVec
-
-    startVec = startVec or (endPos - startPos).Unit
-    startVec = startVec.Unit
-    endVec = endVec or -startVec
-    endVec = endVec.Unit
     
+    local headDir = headSnap.dir
+    local tailDir = tailSnap.dir
+
     local headPart: BasePart = pipeBlueprint.Head
     local tailPart: BasePart = pipeBlueprint.Tail
+    
+    -- both to be initialized, definitively
+    local headJointPos: Vector3?
+    local tailJointPos: Vector3?
+    
+    -- Case A: neither end point orientation is known: infer straight pipe
+    if headDir == nil and tailSnap.dir == nil then
+        local headToTail = tailSnap.pos - headSnap.pos
+        headDir = headToTail.Unit
+        tailDir = -headDir
+    end
 
-    headPart:PivotTo(CFrame.lookAlong(startPos, startVec))
-    -- TODO: impl max pipe len
-    tailPart:PivotTo(CFrame.lookAlong(endPos, endVec))
+    -- Case B: both end point orientations are known: attempt no inference
     
-    local headJointPos = headPart.Joint.Position
-    local tailJointPos = tailPart.Joint.Position
+    if headDir ~= nil then
+        headPart:PivotTo(CFrame.lookAlong(headSnap.pos, headDir))
+        headJointPos = headPart.Joint.Position
+    end
     
-    -- adjust pipe shaft to fit distance
+    if tailDir ~= nil then
+        tailPart:PivotTo(CFrame.lookAlong(tailSnap.pos, tailDir))
+        tailJointPos = tailPart.Joint.Position
+    end
+    
+    -- Case C: one end point orientation is known, and fixed: infer the other
+
+    if headDir == nil then
+        headDir = tailJointPos - headSnap.pos
+        headPart:PivotTo(CFrame.lookAlong(headSnap.pos, headDir))
+        headJointPos = headPart.Joint.Position
+    end
+    
+    if tailDir == nil then
+        tailDir = headJointPos - tailSnap.pos
+        tailPart:PivotTo(CFrame.lookAlong(tailSnap.pos, tailDir))
+        tailJointPos = tailPart.Joint.Position
+    end
+
     local shaftVec = headJointPos - tailJointPos
     local pipeLength = shaftVec.Magnitude
+    
+    -- adjust pipe shaft to fit distance
     local shaftPart: BasePart = pipeBlueprint.Shaft
     shaftPart.Size = Vector3.new(pipeLength, shaftPart.Size.Y, shaftPart.Size.Z)
     local shaftCenter = (headJointPos + tailJointPos) / 2
@@ -124,11 +151,13 @@ function updatePipeBpShape(startPos: Vector3?, endPos: Vector3?, startVec: Vecto
     --      |        |   (endVec)
     -- (startVec)
     
-    if shaftVec.Unit:Dot(-startVec) < math.cos(MIN_PIPE_HINGE_ANGLE) then
+    shaftVec = shaftVec.Unit
+
+    if shaftVec:Dot(-headDir.Unit) < math.cos(MIN_PIPE_HINGE_ANGLE) then
         return false
     end
     
-    if shaftVec.Unit:Dot(endVec) < math.cos(MIN_PIPE_HINGE_ANGLE) then
+    if shaftVec:Dot(tailDir.Unit) < math.cos(MIN_PIPE_HINGE_ANGLE) then
         return false
     end
     
@@ -136,11 +165,19 @@ function updatePipeBpShape(startPos: Vector3?, endPos: Vector3?, startVec: Vecto
 end
 
 
-function updatePipeBpColor(valid: boolean)
+function updatePipeBpColor(valid: boolean, snap: boolean)
     if pipeBlueprint == nil then return end
 
     -- pipe "valid" will be colored standard
-    local color = valid and PIPE_COLORS.default or PIPE_COLORS.hologramInvalid
+    local color
+    
+    if not valid then
+        color = PIPE_COLORS.hologramInvalid
+    elseif snap then
+        color = PIPE_COLORS.hologramValid
+    else
+        color = PIPE_COLORS.default
+    end
 
     for _, part: BasePart in pairs(pipeBlueprint:GetDescendants()) do
         if not part:IsA("BasePart") then continue end
@@ -150,15 +187,13 @@ function updatePipeBpColor(valid: boolean)
 end
 
 
-function placePipe()
+function realizePipeBp()
+    -- solidifies the pipe blueprint hologram into a physical pipe
     local primaryPart = pipeBlueprint.PrimaryPart
 
     -- Solidify the hologram
     for _, part in pairs(pipeBlueprint:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.CanCollide = true
-            part.Transparency = 0
-            -- let each individual part be unachored and instead form an assembly
             part.Anchored = false
             
             -- let each part be welded to the primary part
@@ -166,6 +201,15 @@ function placePipe()
             weld.Parent = part
             weld.Part0 = primaryPart
             weld.Part1 = part
+
+            if part.CollisionGroup == "PipeSnap" then continue end
+            
+            -- visual modifications
+
+            part.CanCollide = true
+            part.Transparency = 0
+            part.CastShadow = true
+            -- let each individual part be unachored and instead form an assembly
             
             -- return colorable parts to default coloring
             if part:GetAttribute("doNotRecolor") ~= true then
@@ -193,7 +237,7 @@ function getMouseTarget()
     -- snapIndicator does not to be ignored because it can not be queried
     raycastParams.FilterDescendantsInstances = { player.Character, pipeBlueprint }
     raycastParams.IgnoreWater = true
-    
+
     local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
     
     if raycastResult == nil then
@@ -204,46 +248,103 @@ function getMouseTarget()
 end
 
 
+type Snap = {
+    pos: Vector3,
+    dir: Vector3?,
+    part: BasePart?
+}
+
+
+function trySnap(): Snap?
+    -- Note: VeiewportPointToRay call can be reused from getMouseTarget
+    -- but it is a non-issue.
+    local mousePos = UserInputService:GetMouseLocation()
+    local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    
+    -- Cast the ray
+    local raycastParams = RaycastParams.new()
+    raycastParams.IgnoreWater = true
+    raycastParams.CollisionGroup = "PipeSnap"
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = { player.Character, pipeBlueprint }
+
+    local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+    
+    if raycastResult == nil then
+        return nil
+    end
+    
+    local snapPart: BasePart = raycastResult.Instance
+    local snapPivot = snapPart:GetPivot()
+    local snapPos = snapPivot.Position
+    local snapDir = snapPivot.LookVector
+    
+    if snapPos == nil then
+        error('snapPos is nil')
+    end
+    
+    return {
+        pos = snapPos,
+        dir = snapDir,
+        part = snapPart
+    }
+end
+
+
 function buildingCoro()
     -- runs for the duration of the pipe placement process.
     -- maintains relevant event handlers and state that are
     -- useful this algorithm alone.
 
     print("Good morning!") -- TODO: rm
-    local pipeStart: Vector3?
-    local pipeEnd: Vector3?
-    local mouse: Vector3?
-    
+    local headSnap: Snap?
+    local tailSnap: Snap?
+
+    local activeSnap: Snap?
     local pipeShapeValid = true
     
     -- TODO: resources like these need to be externalized for automatic cleanup
     local connection
     connection = UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if mouse == nil then return end
+            if activeSnap == nil then return end
 
-            print('click', pipeStart, pipeEnd)
-            if pipeStart == nil then
-                pipeStart = mouse
+            print('click', headSnap, tailSnap) -- TODO: rm
+            if headSnap == nil then
+                headSnap = activeSnap
                 updateSnapIndicator(nil)
             elseif pipeShapeValid then
-                pipeEnd = mouse
+                tailSnap = activeSnap
                 connection:Disconnect()
             end
         end
     end)
 
     print('beginning loop')
-    while pipeStart == nil or pipeEnd == nil do
-        mouse = getMouseTarget()
+    while headSnap == nil or tailSnap == nil do
+        activeSnap = trySnap()
+        local canSnap = activeSnap ~= nil
+        
+        if not canSnap then
+            local pos = getMouseTarget()
+            
+            -- this maintains that non-nil Snaps always have a pos
+            if pos ~= nil then
+                activeSnap = {
+                    pos = pos,
+                    dir = nil,
+                    part = nil
+                }
+            end
+        end
 
-        if pipeStart == nil then
-            updateSnapIndicator(mouse)
+        if headSnap == nil then
+            updateSnapIndicator(activeSnap.pos, canSnap)
         else
-            local nextValid = updatePipeBpShape(pipeStart, mouse)
+            local nextValid = updatePipeBpShape(headSnap, activeSnap)
         
             if nextValid ~= pipeShapeValid then
-                updatePipeBpColor(nextValid)
+                updatePipeBpColor(nextValid, canSnap)
                 pipeShapeValid = nextValid
             end
         end
@@ -252,7 +353,7 @@ function buildingCoro()
     end
 
     print("Pipe built!") -- TODO: rm
-    placePipe()
+    realizePipeBp()
 end
 
 
