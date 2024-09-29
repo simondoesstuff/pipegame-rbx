@@ -195,7 +195,7 @@ function updatePipeBpColor(valid: boolean, snap: boolean)
 end
 
 
-function realizePipeBp()
+function realizePipeBp(headSnap: Snap, tailSnap: Snap)
     -- solidifies the pipe blueprint hologram into a physical pipe
     local primaryPart = pipeBlueprint.PrimaryPart
 
@@ -229,7 +229,20 @@ function realizePipeBp()
     -- TODO: pipe anchor state needs to be based on snapping
     primaryPart.Anchored = true
     
-    -- this prevents the hologram manager from altering finished pipes
+    -- disabling the snaps from being used again
+    -- TODO: need mechanism to re-enable snaps when pipe are destroyed
+
+    if headSnap.part ~= nil then
+        headSnap.part.CanQuery = false -- remote snap
+        pipeBlueprint.Head.PipeSnap.CanQuery = false -- local snap
+    end
+    
+    if tailSnap.part ~= nil then
+        tailSnap.part.CanQuery = false -- remote snap
+        pipeBlueprint.Tail.PipeSnap.CanQuery = false -- local snap
+    end
+
+    -- it is finished and should no longer be modified
     pipeBlueprint = nil
 end
 
@@ -378,7 +391,7 @@ function pipeCoro()
     end
 
     print("Pipe built!") -- TODO: rm
-    realizePipeBp()
+    realizePipeBp(headSnap, tailSnap)
 end
 
 

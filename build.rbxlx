@@ -80,18 +80,18 @@
 			<Properties>
 				<BinaryString name="AttributesSerialize"></BinaryString>
 				<CoordinateFrame name="CFrame">
-					<X>-248.812531</X>
-					<Y>36.3334579</Y>
-					<Z>189.419876</Z>
-					<R00>-0.321597546</R00>
-					<R01>0.81246835</R01>
-					<R02>-0.48628217</R02>
-					<R10>-1.4901163e-08</R10>
-					<R11>0.513564587</R11>
-					<R12>0.858051002</R12>
-					<R20>0.946876526</R20>
-					<R21>0.275947094</R21>
-					<R22>-0.165161073</R22>
+					<X>-248.945099</X>
+					<Y>36.2414856</Y>
+					<Z>189.374863</Z>
+					<R00>-0.321588188</R00>
+					<R01>0.768928468</R01>
+					<R02>-0.552566946</R02>
+					<R10>-1.49011594e-08</R10>
+					<R11>0.583566189</R11>
+					<R12>0.812065721</R12>
+					<R20>0.946879625</R20>
+					<R21>0.261150748</R21>
+					<R22>-0.187667981</R22>
 				</CoordinateFrame>
 				<Ref name="CameraSubject">null</Ref>
 				<token name="CameraType">0</token>
@@ -1745,7 +1745,7 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 					<Z>0</Z>
 				</Vector3>
 				<token name="ModelStreamingMode">0</token>
-				<string name="Name">3Way</string>
+				<string name="Name">Junct3</string>
 				<bool name="NeedsPivotMigration">false</bool>
 				<Ref name="PrimaryPart">RBX1A3F1F4598064722970E0F4A42EAAE81</Ref>
 				<float name="ScaleFactor">1</float>
@@ -3498,7 +3498,7 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 					<Z>0</Z>
 				</Vector3>
 				<token name="ModelStreamingMode">0</token>
-				<string name="Name">4Way</string>
+				<string name="Name">Junct4</string>
 				<bool name="NeedsPivotMigration">false</bool>
 				<Ref name="PrimaryPart">RBX87482F015C55497D9D8E6BBCFD901CA8</Ref>
 				<float name="ScaleFactor">1</float>
@@ -6176,7 +6176,7 @@ function updatePipeBpColor(valid: boolean, snap: boolean)
 end
 
 
-function realizePipeBp()
+function realizePipeBp(headSnap: Snap, tailSnap: Snap)
     -- solidifies the pipe blueprint hologram into a physical pipe
     local primaryPart = pipeBlueprint.PrimaryPart
 
@@ -6210,7 +6210,20 @@ function realizePipeBp()
     -- TODO: pipe anchor state needs to be based on snapping
     primaryPart.Anchored = true
     
-    -- this prevents the hologram manager from altering finished pipes
+    -- disabling the snaps from being used again
+    -- TODO: need mechanism to re-enable snaps when pipe are destroyed
+
+    if headSnap.part ~= nil then
+        headSnap.part.CanQuery = false -- remote snap
+        pipeBlueprint.Head.PipeSnap.CanQuery = false -- local snap
+    end
+    
+    if tailSnap.part ~= nil then
+        tailSnap.part.CanQuery = false -- remote snap
+        pipeBlueprint.Tail.PipeSnap.CanQuery = false -- local snap
+    end
+
+    -- it is finished and should no longer be modified
     pipeBlueprint = nil
 end
 
@@ -6359,7 +6372,7 @@ function pipeCoro()
     end
 
     print("Pipe built!") -- TODO: rm
-    realizePipeBp()
+    realizePipeBp(headSnap, tailSnap)
 end
 
 
