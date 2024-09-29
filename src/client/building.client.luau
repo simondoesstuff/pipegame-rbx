@@ -16,7 +16,7 @@ local snapIndicatorModel = models:WaitForChild("SnapIndicator")
 
 local BUILD_REACH = 40
 local MAX_PIPE_LENGTH = 20
-local MIN_PIPE_HINGE_ANGLE = math.rad(85)
+local MIN_PIPE_HINGE_ANGLE = math.cos(math.rad(70))
 local PIPE_KEYBIND = Enum.KeyCode.Z
 local CANCEL_KEYBIND = Enum.KeyCode.Escape
 local BLUEPRINT_TRANSPARENCY = 0.7
@@ -152,12 +152,12 @@ function updatePipeBpShape(headSnap: Snap?, tailSnap: Snap?): boolean
     -- (startVec)
     
     shaftVec = shaftVec.Unit
-
-    if shaftVec:Dot(-headDir.Unit) < math.cos(MIN_PIPE_HINGE_ANGLE) then
+    
+    if shaftVec:Dot(headDir.Unit) > MIN_PIPE_HINGE_ANGLE then
         return false
     end
     
-    if shaftVec:Dot(tailDir.Unit) < math.cos(MIN_PIPE_HINGE_ANGLE) then
+    if shaftVec:Dot(-tailDir.Unit) > MIN_PIPE_HINGE_ANGLE then
         return false
     end
     
