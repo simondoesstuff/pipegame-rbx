@@ -17,14 +17,19 @@ local snapIndicatorModel = models:WaitForChild("SnapIndicator")
 local BUILD_REACH = 40
 local MAX_PIPE_LENGTH = 20
 local MIN_PIPE_HINGE_ANGLE = math.cos(math.rad(70))
-local PIPE_KEYBIND = Enum.KeyCode.Z
-local CANCEL_KEYBIND = Enum.KeyCode.Escape
 local BLUEPRINT_TRANSPARENCY = 0.7
 local PIPE_COLORS = {
-    ['default'] = BrickColor.new("Medium brown"),
-    ['hologramValid'] = BrickColor.new("Shamrock"),
-    ['hologramInvalid'] = BrickColor.new("Burgundy")
+    default = BrickColor.new("Medium brown"),
+    hologramValid = BrickColor.new("Shamrock"),
+    hologramInvalid = BrickColor.new("Burgundy")
 }
+local KEYBINDS = {
+    cancel = Enum.KeyCode.Escape,
+    pipe = Enum.KeyCode.Z,
+    junct3 = Enum.KeyCode.X,
+    junct4 = Enum.KeyCode.C
+}
+
 
 local snapIndicator: Model?
 function updateSnapIndicator(pos: Vector3?, snap: boolean?)
@@ -153,6 +158,9 @@ function updatePipeBpShape(headSnap: Snap?, tailSnap: Snap?): boolean
     
     shaftVec = shaftVec.Unit
     
+    -- A dot B = |A| * |B| * cos(theta)
+    -- as A and B get more aligned, theta decreases, cos(theta) increases.
+    -- Consider cosine "similarity"
     if shaftVec:Dot(headDir.Unit) > MIN_PIPE_HINGE_ANGLE then
         return false
     end
@@ -291,7 +299,20 @@ function trySnap(): Snap?
 end
 
 
-function buildingCoro()
+----------------------------------
+--  Coroutines
+----------------------------------
+
+
+local deferCleanup: {() -> nil} = {}
+
+
+function junct3Coro()
+    error('not implemented') -- TODO:
+end
+
+
+function pipeCoro()
     -- runs for the duration of the pipe placement process.
     -- maintains relevant event handlers and state that are
     -- useful this algorithm alone.
@@ -319,6 +340,10 @@ function buildingCoro()
             end
         end
     end)
+
+    deferCleanup[#deferCleanup + 1] = function()
+        connection:Disconnect()
+    end
 
     print('beginning loop')
     while headSnap == nil or tailSnap == nil do
@@ -357,31 +382,61 @@ function buildingCoro()
 end
 
 
+----------------------------------
+--   Coroutine Management
+----------------------------------
+
+
 local buildThread: thread? = nil
 
 
 -- kill a running coroutine
 function tryKillCoro()
-    if buildThread ~= nil and coroutine.status(buildThread) == "running" then
+    if buildThread ~= nil then
         task.cancel(buildThread)
-        pipeBlueprint:Destroy()
-        pipeBlueprint = nil
+
+        if pipeBlueprint ~= nil then
+            pipeBlueprint:Destroy()
+            pipeBlueprint = nil
+        end
+        
+        -- iterate deferCleanup to remove open connections
+        for _, cleanup in pairs(deferCleanup) do
+            cleanup()
+        end
+        
+        deferCleanup = {}
     end
 end
 
 
--- dead? --> start coroutine
--- alive? --> kill & restart coroutine
-UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == PIPE_KEYBIND then
-        tryKillCoro()
-        buildThread = task.spawn(buildingCoro)
-    end
-end)
+function startCoro(coro)
+    -- this guarantees proper handling of resources
+    -- dead? --> start coroutine
+    -- alive? --> kill & restart coroutine
+    tryKillCoro()
+    buildThread = task.spawn(coro)
+end
 
 
 UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == CANCEL_KEYBIND then
+    if input.KeyCode == KEYBINDS.cancel then
         tryKillCoro()
     end
 end)
+
+local bindToCoro = {
+    {KEYBINDS.pipe, pipeCoro},
+    {KEYBINDS.junct3, junct3Coro}
+}
+
+for _, bind in pairs(bindToCoro) do
+    local key = bind[1]
+    local coro = bind[2]
+
+    UserInputService.InputBegan:Connect(function(input)
+        if input.KeyCode == key then
+            startCoro(coro)
+        end
+    end)
+end
