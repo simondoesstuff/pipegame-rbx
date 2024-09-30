@@ -333,9 +333,8 @@ function pipeCoro()
     local tailSnap: Snap?
 
     local activeSnap: Snap?
-    local pipeShapeValid = true
+    local validShape = true
     
-    -- TODO: resources like these need to be externalized for automatic cleanup
     local connection
     connection = UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -345,7 +344,7 @@ function pipeCoro()
             if headSnap == nil then
                 headSnap = activeSnap
                 updateSnapIndicator(nil)
-            elseif pipeShapeValid then
+            elseif validShape then
                 tailSnap = activeSnap
                 connection:Disconnect()
             end
@@ -389,13 +388,8 @@ function pipeCoro()
                 -- the canSnap parameter refers to the existence of a PipeSnap
                 updateSnapIndicator(nextSnap.pos, canSnap)
             else
-                local nextValid = updatePipeBpShape(headSnap, nextSnap)
-            
-                -- delta validity triggers recoloring
-                if nextValid ~= pipeShapeValid then
-                    updatePipeBpColor(nextValid, canSnap)
-                    pipeShapeValid = nextValid
-                end
+                validShape = updatePipeBpShape(headSnap, nextSnap)
+                updatePipeBpColor(validShape, canSnap)
             end
             
             -- setting the activeSnap enables the click listener
