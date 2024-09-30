@@ -6307,11 +6307,9 @@ end
 
 
 function pipeCoro()
-    -- runs for the duration of the pipe placement process.
-    -- maintains relevant event handlers and state that are
-    -- useful this algorithm alone.
-
     print("Good morning!") -- TODO: rm
+    -- snap encapsulates information regarding potential snap points
+    -- but is overloaded for the case of a position with no snap
     local headSnap: Snap?
     local tailSnap: Snap?
 
@@ -6341,31 +6339,49 @@ function pipeCoro()
 
     print('beginning loop')
     while headSnap == nil or tailSnap == nil do
-        activeSnap = trySnap()
-        local canSnap = activeSnap ~= nil
+        local nextSnap = trySnap()
+        local canSnap = nextSnap ~= nil
         
         if not canSnap then
             local pos = getMouseTarget()
             
             -- this maintains that non-nil Snaps always have a pos
             if pos ~= nil then
-                activeSnap = {
+                nextSnap = {
                     pos = pos,
                     dir = nil,
                     part = nil
                 }
             end
         end
-
-        if headSnap == nil then
-            updateSnapIndicator(activeSnap.pos, canSnap)
-        else
-            local nextValid = updatePipeBpShape(headSnap, activeSnap)
         
-            if nextValid ~= pipeShapeValid then
-                updatePipeBpColor(nextValid, canSnap)
-                pipeShapeValid = nextValid
+        -- only non nil and uniquely positioned snaps are considered
+        if activeSnap ~= nil and nextSnap ~= nil then
+            -- posA ~= posB not sufficient due to floating point error
+            if (nextSnap.pos - activeSnap.pos).Magnitude < 0.1 then
+                task.wait()
+                continue
             end
+        end
+        
+        -- only frames with a new snap are allowed to perform updates
+        if nextSnap ~= nil then
+            if headSnap == nil then
+                -- the canSnap parameter refers to the existence of a PipeSnap
+                updateSnapIndicator(nextSnap.pos, canSnap)
+            else
+                local nextValid = updatePipeBpShape(headSnap, nextSnap)
+            
+                -- delta validity triggers recoloring
+                if nextValid ~= pipeShapeValid then
+                    updatePipeBpColor(nextValid, canSnap)
+                    pipeShapeValid = nextValid
+                end
+            end
+            
+            -- setting the activeSnap enables the click listener
+            -- to commit endpoints of the pipe
+            activeSnap = nextSnap
         end
 
         task.wait() -- yield to next frame
@@ -6883,7 +6899,7 @@ end]]></ProtectedString>
 				</Properties>
 				<Item class="Part" referent="RBX5DDAE83A0BB04AD18BE38078A842B7E7">
 					<Properties>
-						<bool name="Anchored">false</bool>
+						<bool name="Anchored">true</bool>
 						<BinaryString name="AttributesSerialize"></BinaryString>
 						<float name="BackParamA">-0.5</float>
 						<float name="BackParamB">0.5</float>
