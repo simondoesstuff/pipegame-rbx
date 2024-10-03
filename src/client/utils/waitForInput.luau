@@ -4,7 +4,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Public
 
-function Public:waitForInput(keyCode: Enum.KeyCode)
+function Public.waitForInput(keyCode: Enum.KeyCode)
     local event = Instance.new("BindableEvent")
     
     local connection
