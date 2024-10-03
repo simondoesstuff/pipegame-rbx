@@ -2,6 +2,8 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local projByNormal = require(script.Parent.utils.linearAlgebra).projByNormal
+
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
@@ -12,7 +14,6 @@ local models = ReplicatedStorage:WaitForChild("Models")
 local pipeModel = models:WaitForChild("Pipe")
 local snapIndicatorModel = models:WaitForChild("SnapIndicator")
 
-local BUILD_REACH = 40
 local MAX_PIPE_LENGTH = 20
 local MIN_PIPE_HINGE_ANGLE = math.cos(math.rad(70))
 local BLUEPRINT_TRANSPARENCY = 0.7
@@ -27,14 +28,6 @@ local KEYBINDS = {
     junct3 = Enum.KeyCode.X,
     junct4 = Enum.KeyCode.C
 }
-
-
--- TODO: extract
-function projByNormal(vector: Vector3, normal: Vector3)
-    -- Projects a vector into the plane of the normal.
-    normal = normal.Unit
-    return vector - normal:Dot(vector) * normal
-end
 
 
 function maintainHologram(reference: Model, active: Model?, viable: boolean): Model?
@@ -355,8 +348,6 @@ end
 
 
 function pipeCoro()
-    print("Good morning!") -- TODO: rm
-
     local activeCast: Snap?
 
     -- don't start primary algorithm until at least one
@@ -375,7 +366,6 @@ function pipeCoro()
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             if activeCast == nil then return end
 
-            print('click', headCast, tailCast) -- TODO: rm
             if headCast == nil then
                 headCast = activeCast
             elseif validShape then
@@ -395,7 +385,6 @@ function pipeCoro()
         snapHologram = maintainHologram(snapIndicatorModel, snapHologram, false)
     end
 
-    print('beginning loop')
     while headCast == nil or tailCast == nil do
         local nextCast = getMouseTarget()
 
@@ -426,7 +415,6 @@ function pipeCoro()
         task.wait() -- yield to next frame
     end
 
-    print("Pipe built!") -- TODO: rm
     realizePipeBp(pipeHologram, headCast, tailCast)
     pipeHologram = nil -- prevents further modification
 end
