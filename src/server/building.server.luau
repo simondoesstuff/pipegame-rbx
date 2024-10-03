@@ -34,6 +34,40 @@ function solidyBlueprint(model)
 end
 
 
+function weldSnaps(model: Model)
+    local scanArgs = OverlapParams.new()
+    scanArgs.CollisionGroup = "PipeSnap"
+
+    for _, domestic in pairs(model:GetDescendants()) do
+        if not domestic:IsA("BasePart") then continue end
+        if domestic.CollisionGroup ~= "PipeSnap" then continue end
+
+        local neighbors = workspace:GetPartsInPart(domestic, scanArgs)
+        
+        if #neighbors == 0 then continue end
+
+        if #neighbors > 1 then
+            warn("Attemping to join one pipe snap to multiple others.")
+        end
+
+        domestic.CanQuery = false
+        
+        for _, foreign in pairs(neighbors) do
+            if foreign == domestic then continue end
+            -- TODO: this is a hacky way to check if an assembly is a hologram
+            if foreign.AssemblyRootPart.Transparency < 1 then continue end
+
+            local weld = Instance.new('WeldConstraint')
+            weld.Parent = domestic
+            weld.Part0 = domestic
+            weld.Part1 = foreign
+            
+            foreign.CanQuery = false
+        end
+    end
+end
+
+
 pipePlaceRemote.OnServerInvoke = function(sender: Player, headSnap: Placement, tailSnap: Placement)
     local model = pipeModel:Clone()
     local valid = PipeBuilder.shape(model, headSnap, tailSnap)
@@ -45,6 +79,7 @@ pipePlaceRemote.OnServerInvoke = function(sender: Player, headSnap: Placement, t
     end
 
     solidyBlueprint(model)
+    weldSnaps(model)
     model.Parent = Workspace
 
     -- disabling the snaps from being used again

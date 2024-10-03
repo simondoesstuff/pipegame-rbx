@@ -1,10 +1,10 @@
-local players = game:GetService("Players"):GetPlayers()
+local Players = game:GetService("Players")
 
 
 function playersSet()
     local playerSet = {}
     
-    for _, player in ipairs(players) do
+    for _, player in ipairs(Players:GetPlayers()) do
         local char = player.Character
 
         -- only loaded characters are relevant
@@ -26,7 +26,7 @@ export type Cast = {
 }
 
 
-local Cast = {}
+local Cast: Cast = {}
 
 
 function Cast.new()
