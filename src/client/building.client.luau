@@ -180,8 +180,7 @@ function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolea
     end
     
     -- do a raycast through the shaft to get an approximation for intersetions
-    -- NOTE: this will not check intersections on the endpoints, within the
-    -- elbow point or even in the shaft, if to a partial degree. This ONLY
+    -- NOTE: this will not check intersections that partially clip. This ONLY
     -- ensures pipes can not outright go straight through walls. This is very
     -- fast and forgiving, but not perfectly accurate.
 
@@ -189,11 +188,17 @@ function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolea
     castArgs.IgnoreWater = true
     castArgs.FilterType = Enum.RaycastFilterType.Exclude
     castArgs.FilterDescendantsInstances = { model }
+
     local cast = workspace:Raycast(headJointPos, shaftVec, castArgs)
-    
-    if cast ~= nil then
-        return false
-    end
+    if cast ~= nil then return false end
+
+    local headToJoint = headJointPos - headPos
+    local cast = workspace:Raycast(headPos + .02 * headToJoint, headToJoint, castArgs)
+    if cast ~= nil then return false end
+
+    local tailToJoint = tailJointPos - tailPos
+    local cast = workspace:Raycast(tailPos + .02 * tailToJoint, tailToJoint, castArgs)
+    if cast ~= nil then return false end
 
     return true
 end
