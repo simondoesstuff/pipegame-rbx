@@ -10,7 +10,7 @@
 			<token name="CSGAsyncDynamicCollision">0</token>
 			<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
 			<token name="ClientAnimatorThrottling">0</token>
-			<BinaryString name="CollisionGroupData">AQIABP3///8HRGVmYXVsdAEE/v///whQaXBlU25hcA==</BinaryString>
+			<BinaryString name="CollisionGroupData">AQEABP////8HRGVmYXVsdA==</BinaryString>
 			<Ref name="CurrentCamera">RBX9d8ca8370a4347499a9c3ec76c18db30</Ref>
 			<token name="DecreaseMinimumPartDensityMode">0</token>
 			<bool name="DefinesCapabilities">false</bool>
@@ -2199,8 +2199,8 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 						<bool name="CanTouch">false</bool>
 						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
 						<bool name="CastShadow">false</bool>
-						<string name="CollisionGroup">PipeSnap</string>
-						<int name="CollisionGroupId">1</int>
+						<string name="CollisionGroup">Default</string>
+						<int name="CollisionGroupId">0</int>
 						<Color3uint8 name="Color3uint8">4294506744</Color3uint8>
 						<PhysicalProperties name="CustomPhysicalProperties">
 							<CustomPhysics>false</CustomPhysics>
@@ -2799,8 +2799,8 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 						<bool name="CanTouch">false</bool>
 						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
 						<bool name="CastShadow">false</bool>
-						<string name="CollisionGroup">PipeSnap</string>
-						<int name="CollisionGroupId">1</int>
+						<string name="CollisionGroup">Default</string>
+						<int name="CollisionGroupId">0</int>
 						<Color3uint8 name="Color3uint8">4294506744</Color3uint8>
 						<PhysicalProperties name="CustomPhysicalProperties">
 							<CustomPhysics>false</CustomPhysics>
@@ -3399,8 +3399,8 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 						<bool name="CanTouch">false</bool>
 						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
 						<bool name="CastShadow">false</bool>
-						<string name="CollisionGroup">PipeSnap</string>
-						<int name="CollisionGroupId">1</int>
+						<string name="CollisionGroup">Default</string>
+						<int name="CollisionGroupId">0</int>
 						<Color3uint8 name="Color3uint8">4294506744</Color3uint8>
 						<PhysicalProperties name="CustomPhysicalProperties">
 							<CustomPhysics>false</CustomPhysics>
@@ -4051,8 +4051,8 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 							<bool name="CanTouch">false</bool>
 							<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
 							<bool name="CastShadow">false</bool>
-							<string name="CollisionGroup">PipeSnap</string>
-							<int name="CollisionGroupId">1</int>
+							<string name="CollisionGroup">Default</string>
+							<int name="CollisionGroupId">0</int>
 							<Color3uint8 name="Color3uint8">4294506744</Color3uint8>
 							<PhysicalProperties name="CustomPhysicalProperties">
 								<CustomPhysics>false</CustomPhysics>
@@ -4551,8 +4551,8 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 							<bool name="CanTouch">false</bool>
 							<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
 							<bool name="CastShadow">false</bool>
-							<string name="CollisionGroup">PipeSnap</string>
-							<int name="CollisionGroupId">1</int>
+							<string name="CollisionGroup">Default</string>
+							<int name="CollisionGroupId">0</int>
 							<Color3uint8 name="Color3uint8">4294506744</Color3uint8>
 							<PhysicalProperties name="CustomPhysicalProperties">
 								<CustomPhysics>false</CustomPhysics>
@@ -5051,8 +5051,8 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 							<bool name="CanTouch">false</bool>
 							<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
 							<bool name="CastShadow">false</bool>
-							<string name="CollisionGroup">PipeSnap</string>
-							<int name="CollisionGroupId">1</int>
+							<string name="CollisionGroup">Default</string>
+							<int name="CollisionGroupId">0</int>
 							<Color3uint8 name="Color3uint8">4294506744</Color3uint8>
 							<PhysicalProperties name="CustomPhysicalProperties">
 								<CustomPhysics>false</CustomPhysics>
@@ -5451,8 +5451,8 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 							<bool name="CanTouch">false</bool>
 							<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
 							<bool name="CastShadow">false</bool>
-							<string name="CollisionGroup">PipeSnap</string>
-							<int name="CollisionGroupId">1</int>
+							<string name="CollisionGroup">Default</string>
+							<int name="CollisionGroupId">0</int>
 							<Color3uint8 name="Color3uint8">4294506744</Color3uint8>
 							<PhysicalProperties name="CustomPhysicalProperties">
 								<CustomPhysics>false</CustomPhysics>
@@ -6064,6 +6064,7 @@ function updatePipeBpShape(headSnap: Snap?, tailSnap: Snap?): boolean
                 if part.CollisionGroup == "PipeSnap" then continue end
                 part.CanCollide = false
                 part.CastShadow = false 
+                part.CanQuery = false
                 part.Transparency = BLUEPRINT_TRANSPARENCY
             end
         end
@@ -6195,9 +6196,10 @@ function realizePipeBp(headSnap: Snap, tailSnap: Snap)
             
             -- visual modifications
 
-            part.CanCollide = true
             part.Transparency = 0
+            part.CanCollide = true
             part.CastShadow = true
+            part.CanQuery = true 
             -- let each individual part be unachored and instead form an assembly
             
             -- return colorable parts to default coloring
@@ -6228,7 +6230,7 @@ function realizePipeBp(headSnap: Snap, tailSnap: Snap)
 end
 
 
-function getMouseTarget()
+function getMouseTarget(): Snap?
     -- Get mouse position in 3D space
     local mousePos = UserInputService:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -6241,12 +6243,42 @@ function getMouseTarget()
     raycastParams.IgnoreWater = true
 
     local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
-    
-    if raycastResult == nil then
-        return nil
+
+    local snap = nil
+    if raycastResult.Instance.Name == "PipeSnap" then
+        snap = raycastResult.Instance
     end
     
-    return raycastResult.Position
+    return {
+        pos = raycastResult.Position,
+        normal = raycastResult.Normal,
+        snap = snap,
+    }
+    
+
+    -- if raycastResult == nil then
+    --     return nil
+    -- end
+    
+    -- local part: BasePart = raycastResult.Instance
+    
+    -- if part.Name == "PipeSnap" then
+    --     local snapPivot = part:GetPivot()
+    --     local snapPos = snapPivot.Position
+    --     local snapDir = snapPivot.LookVector
+        
+    --     return {
+    --         pos = snapPos,
+    --         dir = snapDir,
+    --         part = part
+    --     }
+    -- end
+    
+    -- return {
+    --     pos = raycastResult.Position,
+    --     dir = nil,
+    --     part = nil
+    -- }
 end
 
 
@@ -6338,11 +6370,10 @@ function pipeCoro()
 
     print('beginning loop')
     while headSnap == nil or tailSnap == nil do
-        local nextSnap = trySnap()
+        local nextCast = getMouseTarget()
         local canSnap = nextSnap ~= nil
         
         if not canSnap then
-            local pos = getMouseTarget()
             
             -- this maintains that non-nil Snaps always have a pos
             if pos ~= nil then

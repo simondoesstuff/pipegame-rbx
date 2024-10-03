@@ -83,6 +83,7 @@ function updatePipeBpShape(headSnap: Snap?, tailSnap: Snap?): boolean
                 if part.CollisionGroup == "PipeSnap" then continue end
                 part.CanCollide = false
                 part.CastShadow = false 
+                part.CanQuery = false
                 part.Transparency = BLUEPRINT_TRANSPARENCY
             end
         end
@@ -91,8 +92,8 @@ function updatePipeBpShape(headSnap: Snap?, tailSnap: Snap?): boolean
     -- this will run every frame as the mouse moves
     -- CRTICIAL ZONE:
     
-    local headDir = headSnap.dir
-    local tailDir = tailSnap.dir
+    local headDir = headSnap.forward
+    local tailDir = tailSnap.forward
 
     local headPart: BasePart = pipeBlueprint.Head
     local tailPart: BasePart = pipeBlueprint.Tail
@@ -101,9 +102,23 @@ function updatePipeBpShape(headSnap: Snap?, tailSnap: Snap?): boolean
     local headJointPos: Vector3?
     local tailJointPos: Vector3?
     
+    -- non snapped endpoints need to be raised to avoid clipping
+
+    local headPos = headSnap.pos
+    local tailPos = tailSnap.pos
+    local endpointRadius = pipeBlueprint.Head.Tip.Size.Y / 2
+
+    if headSnap.snap == nil then
+        headPos += headSnap.normal * endpointRadius
+    end
+
+    if tailSnap.snap == nil then
+        tailPos += tailSnap.normal * endpointRadius
+    end
+    
     -- Case A: neither end point orientation is known: infer straight pipe
-    if headDir == nil and tailSnap.dir == nil then
-        local headToTail = tailSnap.pos - headSnap.pos
+    if headDir == nil and tailSnap.forward == nil then
+        local headToTail = tailPos - headPos
         headDir = headToTail.Unit
         tailDir = -headDir
     end
@@ -111,26 +126,26 @@ function updatePipeBpShape(headSnap: Snap?, tailSnap: Snap?): boolean
     -- Case B: both end point orientations are known: attempt no inference
     
     if headDir ~= nil then
-        headPart:PivotTo(CFrame.lookAlong(headSnap.pos, headDir))
+        headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
         headJointPos = headPart.Joint.Position
     end
     
     if tailDir ~= nil then
-        tailPart:PivotTo(CFrame.lookAlong(tailSnap.pos, tailDir))
+        tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
         tailJointPos = tailPart.Joint.Position
     end
     
     -- Case C: one end point orientation is known, and fixed: infer the other
 
     if headDir == nil then
-        headDir = tailJointPos - headSnap.pos
-        headPart:PivotTo(CFrame.lookAlong(headSnap.pos, headDir))
+        headDir = tailJointPos - headPos
+        headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
         headJointPos = headPart.Joint.Position
     end
     
     if tailDir == nil then
-        tailDir = headJointPos - tailSnap.pos
-        tailPart:PivotTo(CFrame.lookAlong(tailSnap.pos, tailDir))
+        tailDir = headJointPos - tailPos
+        tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
         tailJointPos = tailPart.Joint.Position
     end
 
@@ -214,9 +229,10 @@ function realizePipeBp(headSnap: Snap, tailSnap: Snap)
             
             -- visual modifications
 
-            part.CanCollide = true
             part.Transparency = 0
+            part.CanCollide = true
             part.CastShadow = true
+            part.CanQuery = true 
             -- let each individual part be unachored and instead form an assembly
             
             -- return colorable parts to default coloring
@@ -232,13 +248,13 @@ function realizePipeBp(headSnap: Snap, tailSnap: Snap)
     -- disabling the snaps from being used again
     -- TODO: need mechanism to re-enable snaps when pipe are destroyed
 
-    if headSnap.part ~= nil then
-        headSnap.part.CanQuery = false -- remote snap
+    if headSnap.snap ~= nil then
+        headSnap.snap.CanQuery = false -- remote snap
         pipeBlueprint.Head.PipeSnap.CanQuery = false -- local snap
     end
     
-    if tailSnap.part ~= nil then
-        tailSnap.part.CanQuery = false -- remote snap
+    if tailSnap.snap ~= nil then
+        tailSnap.snap.CanQuery = false -- remote snap
         pipeBlueprint.Tail.PipeSnap.CanQuery = false -- local snap
     end
 
@@ -247,7 +263,15 @@ function realizePipeBp(headSnap: Snap, tailSnap: Snap)
 end
 
 
-function getMouseTarget()
+type Snap = {
+    pos: Vector3,
+    normal: Vector3,
+    forward: Vector3?,
+    snap: BasePart?
+}
+
+
+function getMouseTarget(): Snap?
     -- Get mouse position in 3D space
     local mousePos = UserInputService:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -265,51 +289,60 @@ function getMouseTarget()
         return nil
     end
     
-    return raycastResult.Position
-end
-
-
-type Snap = {
-    pos: Vector3,
-    dir: Vector3?,
-    part: BasePart?
-}
-
-
-function trySnap(): Snap?
-    -- Note: VeiewportPointToRay call can be reused from getMouseTarget
-    -- but it is a non-issue.
-    local mousePos = UserInputService:GetMouseLocation()
-    local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-    
-    -- Cast the ray
-    local raycastParams = RaycastParams.new()
-    raycastParams.IgnoreWater = true
-    raycastParams.CollisionGroup = "PipeSnap"
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-    raycastParams.FilterDescendantsInstances = { player.Character, pipeBlueprint }
-
-    local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
-    
-    if raycastResult == nil then
-        return nil
+    if raycastResult.Instance.Name == "PipeSnap" then
+        local snap: BasePart = raycastResult.Instance
+        local pivot = snap:GetPivot()
+        
+        return {
+            pos = pivot.Position,
+            normal = pivot.UpVector,
+            forward = pivot.LookVector,
+            snap = snap,
+        }
     end
-    
-    local snapPart: BasePart = raycastResult.Instance
-    local snapPivot = snapPart:GetPivot()
-    local snapPos = snapPivot.Position
-    local snapDir = snapPivot.LookVector
-    
-    if snapPos == nil then
-        error('snapPos is nil')
-    end
-    
+
     return {
-        pos = snapPos,
-        dir = snapDir,
-        part = snapPart
+        pos = raycastResult.Position,
+        normal = raycastResult.Normal,
     }
 end
+
+
+
+-- function trySnap(): Snap?
+--     -- Note: VeiewportPointToRay call can be reused from getMouseTarget
+--     -- but it is a non-issue.
+--     local mousePos = UserInputService:GetMouseLocation()
+--     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+    
+--     -- Cast the ray
+--     local raycastParams = RaycastParams.new()
+--     raycastParams.IgnoreWater = true
+--     raycastParams.CollisionGroup = "PipeSnap"
+--     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+--     raycastParams.FilterDescendantsInstances = { player.Character, pipeBlueprint }
+
+--     local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+    
+--     if raycastResult == nil then
+--         return nil
+--     end
+    
+--     local snapPart: BasePart = raycastResult.Instance
+--     local snapPivot = snapPart:GetPivot()
+--     local snapPos = snapPivot.Position
+--     local snapDir = snapPivot.LookVector
+    
+--     if snapPos == nil then
+--         error('snapPos is nil')
+--     end
+    
+--     return {
+--         pos = snapPos,
+--         dir = snapDir,
+--         part = snapPart
+--     }
+-- end
 
 
 ----------------------------------
@@ -329,23 +362,23 @@ function pipeCoro()
     print("Good morning!") -- TODO: rm
     -- snap encapsulates information regarding potential snap points
     -- but is overloaded for the case of a position with no snap
-    local headSnap: Snap?
-    local tailSnap: Snap?
+    local headCast: Snap?
+    local tailCast: Snap?
 
-    local activeSnap: Snap?
+    local activeCast: Snap?
     local validShape = true
     
     local connection
     connection = UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if activeSnap == nil then return end
+            if activeCast == nil then return end
 
-            print('click', headSnap, tailSnap) -- TODO: rm
-            if headSnap == nil then
-                headSnap = activeSnap
+            print('click', headCast, tailCast) -- TODO: rm
+            if headCast == nil then
+                headCast = activeCast
                 updateSnapIndicator(nil)
             elseif validShape then
-                tailSnap = activeSnap
+                tailCast = activeCast
                 connection:Disconnect()
             end
         end
@@ -356,52 +389,39 @@ function pipeCoro()
     end
 
     print('beginning loop')
-    while headSnap == nil or tailSnap == nil do
-        local nextSnap = trySnap()
-        local canSnap = nextSnap ~= nil
-        
-        if not canSnap then
-            local pos = getMouseTarget()
-            
-            -- this maintains that non-nil Snaps always have a pos
-            if pos ~= nil then
-                nextSnap = {
-                    pos = pos,
-                    dir = nil,
-                    part = nil
-                }
-            end
-        end
+    while headCast == nil or tailCast == nil do
+        local nextCast = getMouseTarget()
+        local canSnap = nextCast.snap ~= nil
         
         -- only non nil and uniquely positioned snaps are considered
-        if activeSnap ~= nil and nextSnap ~= nil then
+        if activeCast ~= nil and nextCast ~= nil then
             -- posA ~= posB not sufficient due to floating point error
-            if (nextSnap.pos - activeSnap.pos).Magnitude < 0.1 then
+            if (nextCast.pos - activeCast.pos).Magnitude < 0.1 then
                 task.wait()
                 continue
             end
         end
         
         -- only frames with a new snap are allowed to perform updates
-        if nextSnap ~= nil then
-            if headSnap == nil then
+        if nextCast ~= nil then
+            if headCast == nil then
                 -- the canSnap parameter refers to the existence of a PipeSnap
-                updateSnapIndicator(nextSnap.pos, canSnap)
+                updateSnapIndicator(nextCast.pos, canSnap)
             else
-                validShape = updatePipeBpShape(headSnap, nextSnap)
+                validShape = updatePipeBpShape(headCast, nextCast)
                 updatePipeBpColor(validShape, canSnap)
             end
             
             -- setting the activeSnap enables the click listener
             -- to commit endpoints of the pipe
-            activeSnap = nextSnap
+            activeCast = nextCast
         end
 
         task.wait() -- yield to next frame
     end
 
     print("Pipe built!") -- TODO: rm
-    realizePipeBp(headSnap, tailSnap)
+    realizePipeBp(headCast, tailCast)
 end
 
 
