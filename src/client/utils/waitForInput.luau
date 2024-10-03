@@ -1,7 +1,5 @@
 local UserInputService = game:GetService("UserInputService")
 
--- TODO: utils: waitFor (event), once, all, any
-
 local Public
 
 function Public.waitForInput(keyCode: Enum.KeyCode)

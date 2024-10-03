@@ -1,11 +1,9 @@
 local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local Cast = require(script.Parent.utils.raycast)
 local config = require(script.Parent.config)
 local projByNormal = require(script.Parent.utils.linearAlgebra).projByNormal
-
-local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 -- TODO: these blocking calls should be moved into corresponding coroutines.
@@ -181,20 +179,19 @@ function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolea
     -- fast and forgiving, but not perfectly accurate.
     -- TODO: pipe intersection test can be fooled if head is placed in wall
 
-    local castArgs = RaycastParams.new()
-    castArgs.IgnoreWater = true
-    castArgs.FilterType = Enum.RaycastFilterType.Exclude
-    castArgs.FilterDescendantsInstances = { model }
+    local castArgs = Cast.new()
+    castArgs.IgnorePlayers = false
+    castArgs.Exclude = { model }
 
-    local cast = workspace:Raycast(headJointPos, shaftVec, castArgs)
+    local cast = castArgs:Cast(headJointPos, shaftVec)
     if cast ~= nil then return false end
 
     local headToJoint = headJointPos - headPos
-    local cast = workspace:Raycast(headPos + .02 * headToJoint, headToJoint, castArgs)
+    local cast = castArgs:Cast(headPos + .02 * headToJoint, headToJoint)
     if cast ~= nil then return false end
 
     local tailToJoint = tailJointPos - tailPos
-    local cast = workspace:Raycast(tailPos + .02 * tailToJoint, tailToJoint, castArgs)
+    local cast = castArgs:Cast(tailPos + .02 * tailToJoint, tailToJoint)
     if cast ~= nil then return false end
 
     return true
@@ -289,14 +286,11 @@ function getMouseTarget(): Snap?
     -- done in other parts of the code using the collision groups. 
     
     -- Cast ray 1
-    local castArgs = RaycastParams.new()
-    castArgs.FilterType = Enum.RaycastFilterType.Exclude
-    -- snapIndicator does not to be ignored because it can not be queried
-    castArgs.FilterDescendantsInstances = { player.Character }
-    castArgs.IgnoreWater = true
+    local castArgs = Cast.new()
+    castArgs.IgnorePlayers = true
 
     castArgs.CollisionGroup = "PipeSnap"
-    local cast1 = workspace:Raycast(origin, dir, castArgs)
+    local cast1 = castArgs:Cast(origin, dir)
 
     if cast1 ~= nil then
         local snap: BasePart = cast1.Instance
@@ -311,7 +305,7 @@ function getMouseTarget(): Snap?
     end
     
     castArgs.CollisionGroup = "Default"
-    local cast2 = workspace:Raycast(origin, dir, castArgs)
+    local cast2 = castArgs:Cast(origin, dir)
     
     if cast2 ~= nil then
         return {
