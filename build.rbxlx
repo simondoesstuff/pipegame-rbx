@@ -81,18 +81,18 @@
 			<Properties>
 				<BinaryString name="AttributesSerialize"></BinaryString>
 				<CoordinateFrame name="CFrame">
-					<X>-254.367401</X>
-					<Y>19.6773262</Y>
-					<Z>176.426788</Z>
-					<R00>-0.275232315</R00>
-					<R01>0.561003029</R01>
-					<R02>-0.780719459</R02>
-					<R10>-0</R10>
-					<R11>0.81208396</R11>
-					<R12>0.583540678</R12>
-					<R20>0.96137774</R20>
-					<R21>0.160609245</R21>
-					<R22>-0.223511755</R22>
+					<X>-254.124664</X>
+					<Y>19.9244576</Y>
+					<Z>176.362885</Z>
+					<R00>-0.361278623</R00>
+					<R01>0.659345806</R01>
+					<R02>-0.659348845</R02>
+					<R10>-1.49011612e-08</R10>
+					<R11>0.707108438</R11>
+					<R12>0.70710516</R12>
+					<R20>0.932457924</R20>
+					<R21>0.255461991</R21>
+					<R22>-0.255463153</R22>
 				</CoordinateFrame>
 				<Ref name="CameraSubject">null</Ref>
 				<token name="CameraType">0</token>
@@ -2160,7 +2160,24 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 					<string name="Name">Client</string>
 					<token name="RunContext">0</token>
 					<string name="ScriptGuid">{03fc0036-e9fc-4076-ace5-e37ced77c92e}</string>
-					<ProtectedString name="Source">print(&apos;Hello client!&apos;)</ProtectedString>
+					<ProtectedString name="Source"><![CDATA[local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(shared:WaitForChild("config"))
+
+local SNAP_RADIUS = Config.SNAP_RADIUS
+
+-- Adjusts all PipeSnap radii at start time for the client only.
+-- This enables the client to configure this value later if desired.
+-- Modifying all PipeSnaps in RepStore at init time is a one-time cost,
+-- but avoids PartsInRadius scans or SphereCasts later. This will result
+-- in more performant and accurate snaps.
+for _, part in ReplicatedStorage:GetDescendants() do
+    if part:IsA("BasePart") then
+        if part.CollisionGroup == "PipeSnap" then
+            part.Size = Vector3.new(SNAP_RADIUS, SNAP_RADIUS, SNAP_RADIUS)
+        end
+    end
+end]]></ProtectedString>
 					<int64 name="SourceAssetId">-1</int64>
 					<BinaryString name="Tags"></BinaryString>
 					<UniqueId name="UniqueId">696da4f9cd9f454506ff7d0c0000036b</UniqueId>
@@ -2177,35 +2194,23 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 						<token name="RunContext">0</token>
 						<string name="ScriptGuid">{E32D88B6-54FC-42CE-8828-215BDF3824B5}</string>
 						<ProtectedString name="Source"><![CDATA[local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local projByNormal = require(script.Parent.utils.linearAlgebra).projByNormal
 
-local player = Players.LocalPlayer
+local shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(shared:WaitForChild("config"))
+local Cast = require(shared:WaitForChild("utils"):WaitForChild("raycast"))
+local PipeBuilder = require(shared:WaitForChild("pipeBuilder"))
+
 local camera = workspace.CurrentCamera
+local pipePlaceRemote: RemoteFunction = ReplicatedStorage:WaitForChild("Events"):WaitForChild("PipePlace")
 
 -- TODO: these blocking calls should be moved into corresponding coroutines.
 --     OK for now because almost all systems depend on these resources
---     so the bottleneck is not incurring a strong performance hit.
+--     so the bottleneck is not incurring a strong performance delta.
 local models = ReplicatedStorage:WaitForChild("Models")
 local pipeModel = models:WaitForChild("Pipe")
 local snapIndicatorModel = models:WaitForChild("SnapIndicator")
-
-local MAX_PIPE_LENGTH = 20
-local MIN_PIPE_HINGE_ANGLE = math.cos(math.rad(70))
-local BLUEPRINT_TRANSPARENCY = 0.7
-local PIPE_COLORS = {
-    default = BrickColor.new("Medium brown"),
-    hologramValid = BrickColor.new("Shamrock"),
-    hologramInvalid = BrickColor.new("Burgundy")
-}
-local KEYBINDS = {
-    cancel = Enum.KeyCode.Escape,
-    pipe = Enum.KeyCode.Z,
-    junct3 = Enum.KeyCode.X,
-    junct4 = Enum.KeyCode.C
-}
 
 
 function maintainHologram(reference: Model, active: Model?, viable: boolean): Model?
@@ -2235,7 +2240,7 @@ function maintainHologram(reference: Model, active: Model?, viable: boolean): Mo
 
                 part.CanCollide = false
                 part.CastShadow = false
-                part.Transparency = BLUEPRINT_TRANSPARENCY
+                part.Transparency = Config.BLUEPRINT_TRANSPARENCY
             end
         end
     end
@@ -2246,140 +2251,7 @@ end
 
 function updateSnapIndicator(model: Model, pos: Vector3?, snap: boolean?)
     model:MoveTo(pos)
-    model.PrimaryPart.BrickColor = snap and PIPE_COLORS.hologramValid or PIPE_COLORS.default
-end
-
-
-function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolean
-    -- The entire model state is updated to match the source of truth.
-    -- This prevents accumulative errors of any kind.
-
-    -- this will run every frame as the mouse moves
-    -- INFO: CRTICIAL ZONE:
-
-    local headPart: BasePart = model.Head
-    local tailPart: BasePart = model.Tail
-
-    -- 1. non snapped endpoints need to be raised to avoid clipping
-
-    local headPos = headSnap.pos
-    local tailPos = tailSnap.pos
-    local endpointRadius = headPart.Tip.Size.Y / 2
-
-    if headSnap.snap == nil then
-        headPos += headSnap.up * endpointRadius
-    end
-
-    if tailSnap.snap == nil then
-        tailPos += tailSnap.up * endpointRadius
-    end
-
-    -- 2. orientation inference and adjustment
-
-    -- both to be initialized, definitively
-    local headJointPos: Vector3?
-    local tailJointPos: Vector3?
-    local headDir = headSnap.forward
-    local tailDir = tailSnap.forward
-
-    -- Case A: both end point orientations are known: attempt no inference
-
-    if headDir ~= nil then
-        headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
-        -- cases B and C depend on this positioning
-        headJointPos = headPart.Joint.Position
-    end
-
-    if tailDir ~= nil then
-        tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
-        tailJointPos = tailPart.Joint.Position
-    end
-
-    if headDir == nil or tailDir == nil then
-        if headDir == nil and tailDir == nil then
-            -- Case B: neither end point orientation is known: infer straight pipe
-            local headToTail = tailPos - headPos
-            headDir = headToTail
-            tailDir = -headDir
-        else
-            -- Case C: one end point orientation is known, and fixed: infer the other
-            if headDir == nil then
-                headDir = tailJointPos - headPos
-            elseif tailDir == nil then
-                tailDir = headJointPos - tailPos
-            end
-        end
-
-        -- project into the plane of the normals
-        headDir = projByNormal(headDir, headSnap.up)
-        tailDir = projByNormal(tailDir, tailSnap.up)
-
-        -- place endpoints
-
-        headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
-        headJointPos = headPart.Joint.Position
-
-        tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
-        tailJointPos = tailPart.Joint.Position
-    end
-
-    local shaftVec = tailJointPos - headJointPos
-    local pipeLength = shaftVec.Magnitude
-
-    -- 3. adjust pipe shaft to fit distance
-
-    local shaftPart: BasePart = model.Shaft
-    shaftPart.Size = Vector3.new(pipeLength, shaftPart.Size.Y, shaftPart.Size.Z)
-    local shaftCenter = (headJointPos + tailJointPos) / 2
-    shaftPart:PivotTo(CFrame.new(shaftCenter, tailJointPos))
-
-    -- 4. checking for validity of placement
-    -- TODO: VULNERABILITY: placement validity needs to be moved to server side
-
-    if pipeLength > MAX_PIPE_LENGTH then
-        return false
-    end
-
-    --      (shaftVec)
-    --      --------->
-    --      ^        ^
-    --      |        |   (endVec)
-    -- (startVec)
-
-    -- A dot B = |A| * |B| * cos(theta)
-    -- as A and B get more aligned, theta decreases, cos(theta) increases.
-    -- Consider cosine "similarity"
-    if shaftVec.Unit:Dot(-headDir.Unit) > MIN_PIPE_HINGE_ANGLE then
-        return false
-    end
-
-    if shaftVec.Unit:Dot(tailDir.Unit) > MIN_PIPE_HINGE_ANGLE then
-        return false
-    end
-    
-    -- do a raycast through the shaft to get an approximation for intersetions
-    -- NOTE: this will not check intersections on the endpoints, within the
-    -- elbow point or even in the shaft, if to a partial degree. This ONLY
-    -- ensures pipes can not outright go straight through walls. This is very
-    -- fast and forgiving, but not perfectly accurate.
-
-    local castArgs = RaycastParams.new()
-    castArgs.IgnoreWater = true
-    castArgs.FilterType = Enum.RaycastFilterType.Exclude
-    castArgs.FilterDescendantsInstances = { model }
-
-    local cast = workspace:Raycast(headJointPos, shaftVec, castArgs)
-    if cast ~= nil then return false end
-
-    local headToJoint = headJointPos - headPos
-    local cast = workspace:Raycast(headPos + .02 * headToJoint, headToJoint, castArgs)
-    if cast ~= nil then return false end
-
-    local tailToJoint = tailJointPos - tailPos
-    local cast = workspace:Raycast(tailPos + .02 * tailToJoint, tailToJoint, castArgs)
-    if cast ~= nil then return false end
-
-    return true
+    model.PrimaryPart.BrickColor = snap and Config.PIPE_COLORS.hologramValid or Config.PIPE_COLORS.default
 end
 
 
@@ -2390,11 +2262,11 @@ function updatePipeBpColor(model: Model, valid: boolean, snap: boolean)
     local color
 
     if not valid then
-        color = PIPE_COLORS.hologramInvalid
+        color = Config.PIPE_COLORS.hologramInvalid
     elseif snap then
-        color = PIPE_COLORS.hologramValid
+        color = Config.PIPE_COLORS.hologramValid
     else
-        color = PIPE_COLORS.default
+        color = Config.PIPE_COLORS.default
     end
 
     for _, part: BasePart in pairs(model:GetDescendants()) do
@@ -2405,21 +2277,9 @@ function updatePipeBpColor(model: Model, valid: boolean, snap: boolean)
 end
 
 
-function realizePipeBp(model: Model, headSnap: Snap, tailSnap: Snap)
-    -- solidifies the pipe blueprint hologram into a physical pipe
-    local primaryPart = model.PrimaryPart
-
-    -- Solidify the hologram
+function solidifyBlueprint(model: Model)
     for _, part in pairs(model:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.Anchored = false
-
-            -- let each part be welded to the primary part
-            local weld = Instance.new('WeldConstraint')
-            weld.Parent = part
-            weld.Part0 = primaryPart
-            weld.Part1 = part
-
             part.CanQuery = true
 
             if part.Name == "PipeSnap" then continue end
@@ -2431,40 +2291,14 @@ function realizePipeBp(model: Model, headSnap: Snap, tailSnap: Snap)
 
             -- return colorable parts to default coloring
             if part:GetAttribute("doNotRecolor") ~= true then
-                part.BrickColor = PIPE_COLORS.default
+                part.BrickColor = Config.PIPE_COLORS.default
             end
         end
-    end
-
-    -- TODO: pipe anchor state needs to be based on snapping
-    primaryPart.Anchored = true
-
-    -- disabling the snaps from being used again
-    -- TODO: need mechanism to re-enable snaps when pipe are destroyed
-
-    if headSnap.snap ~= nil then
-        headSnap.snap.CanQuery = false -- remote snap
-        model.Head.PipeSnap.CanQuery = false -- local snap
-    end
-
-    if tailSnap.snap ~= nil then
-        tailSnap.snap.CanQuery = false -- remote snap
-        model.Tail.PipeSnap.CanQuery = false -- local snap
     end
 end
 
 
--- Snap encapsulates information regarding potential snap points
--- but is overloaded for the case of a position without snap
-type Snap = {
-    pos: Vector3,
-    up: Vector3,
-    forward: Vector3?,
-    snap: BasePart?
-}
-
-
-function getMouseTarget(): Snap?
+function getMouseTarget(): Placement?
     -- Get mouse position in 3D space
     local mousePos = UserInputService:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -2481,14 +2315,11 @@ function getMouseTarget(): Snap?
     -- done in other parts of the code using the collision groups. 
     
     -- Cast ray 1
-    local castArgs = RaycastParams.new()
-    castArgs.FilterType = Enum.RaycastFilterType.Exclude
-    -- snapIndicator does not to be ignored because it can not be queried
-    castArgs.FilterDescendantsInstances = { player.Character }
-    castArgs.IgnoreWater = true
+    local castArgs = Cast.new()
+    castArgs.IgnorePlayers = true
 
     castArgs.CollisionGroup = "PipeSnap"
-    local cast1 = workspace:Raycast(origin, dir, castArgs)
+    local cast1 = castArgs:Cast(origin, dir)
 
     if cast1 ~= nil then
         local snap: BasePart = cast1.Instance
@@ -2498,19 +2329,19 @@ function getMouseTarget(): Snap?
             pos = pivot.Position,
             up = pivot.UpVector,
             forward = pivot.LookVector,
-            snap = snap,
+            canSnap = true
         }
     end
     
     castArgs.CollisionGroup = "Default"
-    local cast2 = workspace:Raycast(origin, dir, castArgs)
+    local cast2 = castArgs:Cast(origin, dir)
     
     if cast2 ~= nil then
         return {
             pos = cast2.Position,
             up = cast2.Normal,
             forward = nil,
-            snap = nil
+            canSnap = false
         }
     end
     
@@ -2520,33 +2351,22 @@ end
 
 ----------------------------------
 --  Coroutines
+-- TODO: extract resourceful coroutine
 ----------------------------------
 
 
-local deferCleanup: {() -> nil} = {}
-
-
-function junct3Coro()
-    error('not implemented') -- TODO:
-end
+local clickConnection: RBXScriptConnection? = nil
+local pipeHologram: Model?
+local snapHologram: Model?
 
 
 function pipeCoro()
-    local activeCast: Snap?
+    local activeCast: Placement?
+    local headCast: Placement?
+    local tailCast: Placement?
+    local validShape = false
 
-    -- don't start primary algorithm until at least one
-    -- valid mouse position has been found
-    while activeCast == nil do
-        activeCast = getMouseTarget()
-        task.wait()
-    end
-
-    local headCast: Snap?
-    local tailCast: Snap?
-    local validShape = true
-
-    local connection
-    connection = UserInputService.InputBegan:Connect(function(input)
+    clickConnection = UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             if activeCast == nil then return end
 
@@ -2554,28 +2374,18 @@ function pipeCoro()
                 headCast = activeCast
             elseif validShape then
                 tailCast = activeCast
-                connection:Disconnect()
+                clickConnection:Disconnect()
             end
         end
     end)
-
-    local pipeHologram: Model?
-    local snapHologram: Model?
-
-    deferCleanup[#deferCleanup + 1] = function()
-        connection:Disconnect()
-        -- this has the hologram destroyed
-        pipeHologram = maintainHologram(pipeModel, pipeHologram, false)
-        snapHologram = maintainHologram(snapIndicatorModel, snapHologram, false)
-    end
-
+    
     while headCast == nil or tailCast == nil do
         local nextCast = getMouseTarget()
 
         -- only process frames with motion
         -- posA ~= posB not sufficient due to floating point error
         if nextCast == nil or
-            (nextCast.pos - activeCast.pos).Magnitude < 0.1 then
+            activeCast ~= nil and (nextCast.pos - activeCast.pos).Magnitude < 0.1 then
                 task.wait()
                 continue
         end
@@ -2583,14 +2393,12 @@ function pipeCoro()
         snapHologram = maintainHologram(snapIndicatorModel, snapHologram, headCast == nil)
         pipeHologram = maintainHologram(pipeModel, pipeHologram, headCast ~= nil)
 
-        local canSnap = nextCast.snap ~= nil
-
         if headCast == nil then
             -- the canSnap parameter refers to the existence of a PipeSnap
-            updateSnapIndicator(snapHologram, nextCast.pos, canSnap)
+            updateSnapIndicator(snapHologram, nextCast.pos, nextCast.canSnap)
         else
-            validShape = updatePipeBpShape(pipeHologram, headCast, nextCast)
-            updatePipeBpColor(pipeHologram, validShape, canSnap)
+            validShape = PipeBuilder.shape(pipeHologram, headCast, nextCast)
+            updatePipeBpColor(pipeHologram, validShape, nextCast.canSnap)
         end
 
         -- setting the activeSnap enables the click listener
@@ -2599,8 +2407,14 @@ function pipeCoro()
         task.wait() -- yield to next frame
     end
 
-    realizePipeBp(pipeHologram, headCast, tailCast)
-    pipeHologram = nil -- prevents further modification
+    solidifyBlueprint(pipeHologram)
+    local hologramCopy = pipeHologram
+    pipeHologram = nil
+    
+    coroutine.wrap(function()
+        pipePlaceRemote:InvokeServer(headCast, tailCast)
+        hologramCopy:Destroy()
+    end)()
 end
 
 
@@ -2613,17 +2427,18 @@ local buildThread: thread? = nil
 
 
 -- kill a running coroutine
-function tryKillCoro()
-    if buildThread ~= nil then
-        task.cancel(buildThread)
+function softKillCoro()
+    if buildThread == nil then return end
+    task.cancel(buildThread)
 
-        -- iterate deferCleanup to remove open connections
-        for _, cleanup in pairs(deferCleanup) do
-            cleanup()
-        end
-
-        deferCleanup = {}
+    if clickConnection ~= nil then
+        clickConnection:Disconnect()
+        clickConnection = nil
     end
+
+    pipeHologram = maintainHologram(pipeModel, pipeHologram, false)
+    snapHologram = maintainHologram(snapIndicatorModel, snapHologram, false)
+    buildThread = nil
 end
 
 
@@ -2631,20 +2446,19 @@ function startCoro(coro)
     -- this guarantees proper handling of resources
     -- dead? --> start coroutine
     -- alive? --> kill & restart coroutine
-    tryKillCoro()
+    softKillCoro()
     buildThread = task.spawn(coro)
 end
 
 
 UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == KEYBINDS.cancel then
-        tryKillCoro()
+    if input.KeyCode == Config.KEYBINDS.cancel then
+        softKillCoro()
     end
 end)
 
 local bindToCoro = {
-    {KEYBINDS.pipe, pipeCoro},
-    {KEYBINDS.junct3, junct3Coro}
+    {Config.KEYBINDS.pipe, pipeCoro}
 }
 
 for _, bind in pairs(bindToCoro) do
@@ -2661,76 +2475,6 @@ end]]></ProtectedString>
 						<BinaryString name="Tags"></BinaryString>
 						<UniqueId name="UniqueId">13ac0f8aeeb8593707024f9100009d49</UniqueId>
 					</Properties>
-				</Item>
-				<Item class="Folder" referent="RBXC51EFADA12034502AC8E04A4DC7580C4">
-					<Properties>
-						<BinaryString name="AttributesSerialize"></BinaryString>
-						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
-						<bool name="DefinesCapabilities">false</bool>
-						<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
-						<string name="Name">utils</string>
-						<int64 name="SourceAssetId">-1</int64>
-						<BinaryString name="Tags"></BinaryString>
-						<UniqueId name="UniqueId">13ac0f8aeeb8593707024f9100009e03</UniqueId>
-					</Properties>
-					<Item class="ModuleScript" referent="RBX0A28F91414004D1A8B88DF720C0AD78E">
-						<Properties>
-							<BinaryString name="AttributesSerialize"></BinaryString>
-							<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
-							<bool name="DefinesCapabilities">false</bool>
-							<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
-							<Content name="LinkedSource"><null></null></Content>
-							<string name="Name">waitForInput</string>
-							<string name="ScriptGuid">{57C7C0D3-E642-4319-9D41-44E434E35C83}</string>
-							<ProtectedString name="Source"><![CDATA[local UserInputService = game:GetService("UserInputService")
-
--- TODO: utils: waitFor (event), once, all, any
-
-local Public
-
-function Public.waitForInput(keyCode: Enum.KeyCode)
-    local event = Instance.new("BindableEvent")
-    
-    local connection
-    connection = UserInputService.InputBegan:Connect(function(input)
-        if input.KeyCode == keyCode then
-            event:Fire(input)
-            connection:Disconnect()
-        end
-    end)
-    
-    return event.Event:Wait()
-end
-
-return Public]]></ProtectedString>
-							<int64 name="SourceAssetId">-1</int64>
-							<BinaryString name="Tags"></BinaryString>
-							<UniqueId name="UniqueId">13ac0f8aeeb8593707024f9100009e04</UniqueId>
-						</Properties>
-					</Item>
-					<Item class="ModuleScript" referent="RBX6C90E7ECB5214DE29F0A8B5A9028CC04">
-						<Properties>
-							<BinaryString name="AttributesSerialize"></BinaryString>
-							<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
-							<bool name="DefinesCapabilities">false</bool>
-							<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
-							<Content name="LinkedSource"><null></null></Content>
-							<string name="Name">linearAlgebra</string>
-							<string name="ScriptGuid">{54BA0A90-F71F-4FA6-8F0B-01CF2EC3F3C1}</string>
-							<ProtectedString name="Source"><![CDATA[local Public = {}
-
-function Public.projByNormal(vector: Vector3, normal: Vector3)
-    -- Projects a vector into the plane of the normal.
-    normal = normal.Unit
-    return vector - normal:Dot(vector) * normal
-end
-
-return Public]]></ProtectedString>
-							<int64 name="SourceAssetId">-1</int64>
-							<BinaryString name="Tags"></BinaryString>
-							<UniqueId name="UniqueId">357bcccd7891d946070fe6cf0000f6ff</UniqueId>
-						</Properties>
-					</Item>
 				</Item>
 			</Item>
 		</Item>
@@ -3026,6 +2770,334 @@ end]]></ProtectedString>
 					<int64 name="SourceAssetId">-1</int64>
 					<BinaryString name="Tags"></BinaryString>
 					<UniqueId name="UniqueId">696da4f9cd9f454506ff7d0c00000366</UniqueId>
+				</Properties>
+			</Item>
+			<Item class="Folder" referent="RBX0AE6BFA35C3C4F2A9BCAC74E8D9CCB63">
+				<Properties>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+					<string name="Name">utils</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<BinaryString name="Tags"></BinaryString>
+					<UniqueId name="UniqueId">2cb5c39b3b2f6bee071049160000a71c</UniqueId>
+				</Properties>
+				<Item class="ModuleScript" referent="RBXF1E8CA441CAD42C5A47DA3B7B70D3F3F">
+					<Properties>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+						<Content name="LinkedSource"><null></null></Content>
+						<string name="Name">linearAlgebra</string>
+						<string name="ScriptGuid">{FAB950B5-8323-4015-8773-C881BFC4A809}</string>
+						<ProtectedString name="Source"><![CDATA[local Public = {}
+
+function Public.projByNormal(vector: Vector3, normal: Vector3)
+    -- Projects a vector into the plane of the normal.
+    normal = normal.Unit
+    return vector - normal:Dot(vector) * normal
+end
+
+return Public]]></ProtectedString>
+						<int64 name="SourceAssetId">-1</int64>
+						<BinaryString name="Tags"></BinaryString>
+						<UniqueId name="UniqueId">2cb5c39b3b2f6bee071049160000a71d</UniqueId>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBXBE38E26F37CD438EB6F04669DBE277EB">
+					<Properties>
+						<BinaryString name="AttributesSerialize"></BinaryString>
+						<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+						<bool name="DefinesCapabilities">false</bool>
+						<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+						<Content name="LinkedSource"><null></null></Content>
+						<string name="Name">raycast</string>
+						<string name="ScriptGuid">{156F16C4-B5FA-445B-80B1-6F38D56895E2}</string>
+						<ProtectedString name="Source"><![CDATA[local players = game:GetService("Players"):GetPlayers()
+
+
+function playersSet()
+    local playerSet = {}
+    
+    for _, player in ipairs(players) do
+        local char = player.Character
+
+        -- only loaded characters are relevant
+        if char then
+            table.insert(playerSet, char)
+        end
+    end
+    
+    return playerSet
+end
+
+
+export type Cast = {
+    IgnoreWater: boolean,
+    IgnorePlayers: boolean,
+    CollisionGroup: string,
+    Exclude: {Instance},
+    Include: {Instance},
+}
+
+
+local Cast = {}
+
+
+function Cast.new()
+    local self = setmetatable({}, {__index = Cast})
+    self.IgnoreWater = true
+    self.IgnorePlayers = false
+    self.CollisionGroup = "Default"
+    self.Exclude = nil
+    self.Include = nil
+    return self
+end
+
+
+function Cast:FilterType()
+    -- this makes the default Exclude
+    if self.Include == nil then
+        return {Enum.RaycastFilterType.Exclude, self.Exclude or {}}
+    end
+
+    if self.Exclude == nil then
+        return {Enum.RaycastFilterType.Include, self.Include or {}}
+    end
+    
+    error("Invalid filter type, one of Exclude or Include must be unset.")
+end
+
+
+function Cast:Cast(origin, direction)
+    local castArgs = RaycastParams.new()
+    castArgs.IgnoreWater = self.IgnoreWater
+    castArgs.CollisionGroup = self.CollisionGroup
+
+    local filter = self:FilterType()
+    local filterType = filter[1]
+    local filterContent = filter[2]
+
+    castArgs.FilterType = filterType
+    
+    if self.IgnorePlayers then
+        if castArgs.FilterType == Enum.RaycastFilterType.Exclude then
+            filterContent = {
+                unpack(filterContent),
+                unpack(playersSet())
+            }
+        else
+            error("Invalid filter type, IgnorePlayers requires Exclude filter type.")
+        end
+    end
+    
+    castArgs.FilterDescendantsInstances = filterContent
+    return workspace:Raycast(origin, direction, castArgs)
+end
+
+
+return Cast]]></ProtectedString>
+						<int64 name="SourceAssetId">-1</int64>
+						<BinaryString name="Tags"></BinaryString>
+						<UniqueId name="UniqueId">2cb5c39b3b2f6bee071049160000a71e</UniqueId>
+					</Properties>
+				</Item>
+			</Item>
+			<Item class="ModuleScript" referent="RBXACD7CD6051AD461C9D3DF6E4CF286395">
+				<Properties>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">config</string>
+					<string name="ScriptGuid">{A21998CE-AD54-42B0-9325-F131A3143AB0}</string>
+					<ProtectedString name="Source"><![CDATA[-- TODO: config needs to be lazy initialized on client based on merge
+-- Thus, some of these fields need to be extracted
+return {
+    SNAP_RADIUS = 2,
+    MAX_PIPE_LENGTH = 20,
+    MIN_PIPE_HINGE_ANGLE = math.cos(math.rad(70)),
+    BLUEPRINT_TRANSPARENCY = 0.7,
+    PIPE_COLORS = {
+        default = BrickColor.new("Medium brown"),
+        hologramValid = BrickColor.new("Shamrock"),
+        hologramInvalid = BrickColor.new("Burgundy")
+    },
+    KEYBINDS = {
+        cancel = Enum.KeyCode.Escape,
+        pipe = Enum.KeyCode.Z,
+        junct3 = Enum.KeyCode.X,
+        junct4 = Enum.KeyCode.C
+    }
+}]]></ProtectedString>
+					<int64 name="SourceAssetId">-1</int64>
+					<BinaryString name="Tags"></BinaryString>
+					<UniqueId name="UniqueId">2cb5c39b3b2f6bee071049160000a721</UniqueId>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX1EDE0BEC2C22424BAB0466104D3DADEB">
+				<Properties>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">pipeBuilder</string>
+					<string name="ScriptGuid">{C8E93505-A4E9-414E-9D10-9E9E2368CBCD}</string>
+					<ProtectedString name="Source"><![CDATA[local Config = require(script.Parent.config)
+local projByNormal = require(script.Parent.utils.linearAlgebra).projByNormal
+local Cast = require(script.Parent.utils.raycast)
+
+
+local Public = {}
+
+
+export type Placement = {
+    pos: Vector3,
+    up: Vector3,
+    forward: Vector3?,
+    canSnap: boolean
+}
+
+
+function Public.shape(model: Model, headSnap: Placement, tailSnap: Placement): boolean
+    -- The entire model state is updated to match the source of truth.
+    -- This prevents accumulative errors of any kind.
+
+    -- this will run every frame as the mouse moves
+    -- INFO: CRTICIAL ZONE:
+
+    local headPart: BasePart = model:WaitForChild("Head")
+    local tailPart: BasePart = model:WaitForChild("Tail")
+
+    -- 1. non snapped endpoints need to be raised to avoid clipping
+
+    local headPos = headSnap.pos
+    local tailPos = tailSnap.pos
+    local endpointRadius = headPart:WaitForChild("Tip").Size.Y / 2
+
+    if not headSnap.canSnap then
+        headPos += headSnap.up * endpointRadius
+    end
+
+    if not tailSnap.canSnap then
+        tailPos += tailSnap.up * endpointRadius
+    end
+
+    -- 2. orientation inference and adjustment
+
+    -- both to be initialized, definitively
+    local headJointPos: Vector3?
+    local tailJointPos: Vector3?
+    local headDir = headSnap.forward
+    local tailDir = tailSnap.forward
+
+    -- Case A: both end point orientations are known: attempt no inference
+
+    if headDir ~= nil then
+        headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
+        -- cases B and C depend on this positioning
+        headJointPos = headPart:WaitForChild("Joint").Position
+    end
+
+    if tailDir ~= nil then
+        tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
+        tailJointPos = tailPart:WaitForChild("Joint").Position
+    end
+
+    if headDir == nil or tailDir == nil then
+        if headDir == nil and tailDir == nil then
+            -- Case B: neither end point orientation is known: infer straight pipe
+            local headToTail = tailPos - headPos
+            headDir = headToTail
+            tailDir = -headDir
+        else
+            -- Case C: one end point orientation is known, and fixed: infer the other
+            if headDir == nil then
+                headDir = tailJointPos - headPos
+            elseif tailDir == nil then
+                tailDir = headJointPos - tailPos
+            end
+        end
+
+        -- project into the plane of the normals
+        headDir = projByNormal(headDir, headSnap.up)
+        tailDir = projByNormal(tailDir, tailSnap.up)
+
+        -- place endpoints
+
+        headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
+        headJointPos = headPart:WaitForChild("Joint").Position
+
+        tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
+        tailJointPos = tailPart:WaitForChild("Joint").Position
+    end
+
+    local shaftVec = tailJointPos - headJointPos
+    local pipeLength = shaftVec.Magnitude
+
+    -- 3. adjust pipe shaft to fit distance
+
+    local shaftPart: BasePart = model.Shaft
+    shaftPart.Size = Vector3.new(pipeLength, shaftPart.Size.Y, shaftPart.Size.Z)
+    local shaftCenter = (headJointPos + tailJointPos) / 2
+    shaftPart:PivotTo(CFrame.new(shaftCenter, tailJointPos))
+
+    -- 4. checking for validity of placement
+
+    if pipeLength > Config.MAX_PIPE_LENGTH then
+        return false
+    end
+
+    --      (shaftVec)
+    --      --------->
+    --      ^        ^
+    --      |        |   (endVec)
+    -- (startVec)
+
+    -- A dot B = |A| * |B| * cos(theta)
+    -- as A and B get more aligned, theta decreases, cos(theta) increases.
+    -- Consider cosine "similarity"
+    if shaftVec.Unit:Dot(-headDir.Unit) > Config.MIN_PIPE_HINGE_ANGLE then
+        return false
+    end
+
+    if shaftVec.Unit:Dot(tailDir.Unit) > Config.MIN_PIPE_HINGE_ANGLE then
+        return false
+    end
+    
+    -- do a raycast through the shaft to get an approximation for intersetions
+    -- NOTE: this will not check intersections that partially clip. This ONLY
+    -- ensures pipes can not outright go straight through walls. This is very
+    -- fast and forgiving, but not perfectly accurate.
+    -- TODO: pipe intersection test can be fooled if head is placed in wall
+
+    local castArgs = Cast.new()
+    castArgs.IgnorePlayers = false
+    castArgs.Exclude = { model }
+
+    local cast = castArgs:Cast(headJointPos, shaftVec)
+    if cast ~= nil then return false end
+
+    local headToJoint = headJointPos - headPos
+    local cast = castArgs:Cast(headPos + .02 * headToJoint, headToJoint)
+    if cast ~= nil then return false end
+
+    local tailToJoint = tailJointPos - tailPos
+    local cast = castArgs:Cast(tailPos + .02 * tailToJoint, tailToJoint)
+    if cast ~= nil then return false end
+
+    return true
+end
+
+
+return Public]]></ProtectedString>
+					<int64 name="SourceAssetId">-1</int64>
+					<BinaryString name="Tags"></BinaryString>
+					<UniqueId name="UniqueId">2cb5c39b3b2f6bee071049160000a723</UniqueId>
 				</Properties>
 			</Item>
 		</Item>
@@ -8153,6 +8225,30 @@ end]]></ProtectedString>
 				</Item>
 			</Item>
 		</Item>
+		<Item class="Folder" referent="RBX31D267C5755A43238CFB6D91F71BCCA7">
+			<Properties>
+				<BinaryString name="AttributesSerialize"></BinaryString>
+				<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+				<bool name="DefinesCapabilities">false</bool>
+				<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+				<string name="Name">Events</string>
+				<int64 name="SourceAssetId">-1</int64>
+				<BinaryString name="Tags"></BinaryString>
+				<UniqueId name="UniqueId">2cb5c39b3b2f6bee071049160000a4a5</UniqueId>
+			</Properties>
+			<Item class="RemoteFunction" referent="RBXF66A536A538B4548ACBB3B28BEE06A40">
+				<Properties>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+					<string name="Name">PipePlace</string>
+					<int64 name="SourceAssetId">-1</int64>
+					<BinaryString name="Tags"></BinaryString>
+					<UniqueId name="UniqueId">2cb5c39b3b2f6bee071049160000a4a6</UniqueId>
+				</Properties>
+			</Item>
+		</Item>
 	</Item>
 	<Item class="ServerScriptService" referent="4">
 		<Properties>
@@ -8182,6 +8278,83 @@ end]]></ProtectedString>
 				<BinaryString name="Tags"></BinaryString>
 				<UniqueId name="UniqueId">696da4f9cd9f454506ff7d0c00000368</UniqueId>
 			</Properties>
+			<Item class="Script" referent="RBXCA895B8848A54E53B8B4504BB7C27B6A">
+				<Properties>
+					<BinaryString name="AttributesSerialize"></BinaryString>
+					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+					<bool name="DefinesCapabilities">false</bool>
+					<bool name="Disabled">false</bool>
+					<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
+					<Content name="LinkedSource"><null></null></Content>
+					<string name="Name">building</string>
+					<token name="RunContext">0</token>
+					<string name="ScriptGuid">{FC2B7ECE-A87C-4743-8CBC-1576CF80EBA1}</string>
+					<ProtectedString name="Source"><![CDATA[local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local shared = ReplicatedStorage:WaitForChild("Shared")
+local PipeBuilder = require(shared:WaitForChild("pipeBuilder"))
+
+local pipePlaceRemote: RemoteFunction = ReplicatedStorage:WaitForChild("Events"):WaitForChild("PipePlace")
+local models = ReplicatedStorage:WaitForChild("Models")
+local pipeModel = models:WaitForChild("Pipe")
+
+
+function solidyBlueprint(model)
+        -- solidifies the pipe blueprint hologram into a physical pipe
+    local primaryPart = model.PrimaryPart
+
+    -- TODO: pipe anchor state needs to be based on snapping
+    primaryPart.Anchored = true
+
+    -- Solidify the hologram
+    for _, part in pairs(model:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if part == primaryPart then continue end
+
+            -- let each part be welded to the primary part
+            local weld = Instance.new('WeldConstraint')
+            weld.Parent = part
+            weld.Part0 = primaryPart
+            weld.Part1 = part
+
+            part.CanQuery = true
+            part.Anchored = false
+        end
+    end
+end
+
+
+pipePlaceRemote.OnServerInvoke = function(sender: Player, headSnap: Placement, tailSnap: Placement)
+    local model = pipeModel:Clone()
+    local valid = PipeBuilder.shape(model, headSnap, tailSnap)
+
+    if not valid then
+        -- TODO: handle security flags
+        warn("Client sent pipe with invalid configuration.")
+        return
+    end
+
+    solidyBlueprint(model)
+    model.Parent = Workspace
+
+    -- disabling the snaps from being used again
+    -- TODO: need mechanism to re-enable snaps when pipe are destroyed
+    if headSnap.snap ~= nil then
+        headSnap.snap.CanQuery = false -- remote snap
+        model.Head.PipeSnap.CanQuery = false -- local snap
+    end
+
+    if tailSnap.snap ~= nil then
+        tailSnap.snap.CanQuery = false -- remote snap
+        model.Tail.PipeSnap.CanQuery = false -- local snap
+    end
+end]]></ProtectedString>
+					<int64 name="SourceAssetId">-1</int64>
+					<BinaryString name="Tags"></BinaryString>
+					<UniqueId name="UniqueId">2cb5c39b3b2f6bee071049160000a725</UniqueId>
+				</Properties>
+			</Item>
 		</Item>
 	</Item>
 	<Item class="ServerStorage" referent="RBXd4170972a83642bdbfac5f08da45b8c2">

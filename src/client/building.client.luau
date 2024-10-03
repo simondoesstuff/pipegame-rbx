@@ -1,10 +1,14 @@
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local Cast = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("raycast"))
-local config = require(script.Parent.config)
-local projByNormal = require(script.Parent.utils.linearAlgebra).projByNormal
+
+local shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(shared:WaitForChild("config"))
+local Cast = require(shared:WaitForChild("utils"):WaitForChild("raycast"))
+local PipeBuilder = require(shared:WaitForChild("pipeBuilder"))
+
 local camera = workspace.CurrentCamera
+local pipePlaceRemote: RemoteFunction = ReplicatedStorage:WaitForChild("Events"):WaitForChild("PipePlace")
 
 -- TODO: these blocking calls should be moved into corresponding coroutines.
 --     OK for now because almost all systems depend on these resources
@@ -12,16 +16,6 @@ local camera = workspace.CurrentCamera
 local models = ReplicatedStorage:WaitForChild("Models")
 local pipeModel = models:WaitForChild("Pipe")
 local snapIndicatorModel = models:WaitForChild("SnapIndicator")
-
-
--- Snap encapsulates information regarding potential snap points
--- but is overloaded for the case of a position without snap
-type Snap = {
-    pos: Vector3,
-    up: Vector3,
-    forward: Vector3?,
-    snap: BasePart?
-}
 
 
 function maintainHologram(reference: Model, active: Model?, viable: boolean): Model?
@@ -51,7 +45,7 @@ function maintainHologram(reference: Model, active: Model?, viable: boolean): Mo
 
                 part.CanCollide = false
                 part.CastShadow = false
-                part.Transparency = config.BLUEPRINT_TRANSPARENCY
+                part.Transparency = Config.BLUEPRINT_TRANSPARENCY
             end
         end
     end
@@ -62,139 +56,7 @@ end
 
 function updateSnapIndicator(model: Model, pos: Vector3?, snap: boolean?)
     model:MoveTo(pos)
-    model.PrimaryPart.BrickColor = snap and config.PIPE_COLORS.hologramValid or config.PIPE_COLORS.default
-end
-
-
-function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolean
-    -- The entire model state is updated to match the source of truth.
-    -- This prevents accumulative errors of any kind.
-
-    -- this will run every frame as the mouse moves
-    -- INFO: CRTICIAL ZONE:
-
-    local headPart: BasePart = model.Head
-    local tailPart: BasePart = model.Tail
-
-    -- 1. non snapped endpoints need to be raised to avoid clipping
-
-    local headPos = headSnap.pos
-    local tailPos = tailSnap.pos
-    local endpointRadius = headPart.Tip.Size.Y / 2
-
-    if headSnap.snap == nil then
-        headPos += headSnap.up * endpointRadius
-    end
-
-    if tailSnap.snap == nil then
-        tailPos += tailSnap.up * endpointRadius
-    end
-
-    -- 2. orientation inference and adjustment
-
-    -- both to be initialized, definitively
-    local headJointPos: Vector3?
-    local tailJointPos: Vector3?
-    local headDir = headSnap.forward
-    local tailDir = tailSnap.forward
-
-    -- Case A: both end point orientations are known: attempt no inference
-
-    if headDir ~= nil then
-        headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
-        -- cases B and C depend on this positioning
-        headJointPos = headPart.Joint.Position
-    end
-
-    if tailDir ~= nil then
-        tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
-        tailJointPos = tailPart.Joint.Position
-    end
-
-    if headDir == nil or tailDir == nil then
-        if headDir == nil and tailDir == nil then
-            -- Case B: neither end point orientation is known: infer straight pipe
-            local headToTail = tailPos - headPos
-            headDir = headToTail
-            tailDir = -headDir
-        else
-            -- Case C: one end point orientation is known, and fixed: infer the other
-            if headDir == nil then
-                headDir = tailJointPos - headPos
-            elseif tailDir == nil then
-                tailDir = headJointPos - tailPos
-            end
-        end
-
-        -- project into the plane of the normals
-        headDir = projByNormal(headDir, headSnap.up)
-        tailDir = projByNormal(tailDir, tailSnap.up)
-
-        -- place endpoints
-
-        headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
-        headJointPos = headPart.Joint.Position
-
-        tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
-        tailJointPos = tailPart.Joint.Position
-    end
-
-    local shaftVec = tailJointPos - headJointPos
-    local pipeLength = shaftVec.Magnitude
-
-    -- 3. adjust pipe shaft to fit distance
-
-    local shaftPart: BasePart = model.Shaft
-    shaftPart.Size = Vector3.new(pipeLength, shaftPart.Size.Y, shaftPart.Size.Z)
-    local shaftCenter = (headJointPos + tailJointPos) / 2
-    shaftPart:PivotTo(CFrame.new(shaftCenter, tailJointPos))
-
-    -- 4. checking for validity of placement
-    -- TODO: VULNERABILITY: placement validity needs to be moved to server side
-
-    if pipeLength > config.MAX_PIPE_LENGTH then
-        return false
-    end
-
-    --      (shaftVec)
-    --      --------->
-    --      ^        ^
-    --      |        |   (endVec)
-    -- (startVec)
-
-    -- A dot B = |A| * |B| * cos(theta)
-    -- as A and B get more aligned, theta decreases, cos(theta) increases.
-    -- Consider cosine "similarity"
-    if shaftVec.Unit:Dot(-headDir.Unit) > config.MIN_PIPE_HINGE_ANGLE then
-        return false
-    end
-
-    if shaftVec.Unit:Dot(tailDir.Unit) > config.MIN_PIPE_HINGE_ANGLE then
-        return false
-    end
-    
-    -- do a raycast through the shaft to get an approximation for intersetions
-    -- NOTE: this will not check intersections that partially clip. This ONLY
-    -- ensures pipes can not outright go straight through walls. This is very
-    -- fast and forgiving, but not perfectly accurate.
-    -- TODO: pipe intersection test can be fooled if head is placed in wall
-
-    local castArgs = Cast.new()
-    castArgs.IgnorePlayers = false
-    castArgs.Exclude = { model }
-
-    local cast = castArgs:Cast(headJointPos, shaftVec)
-    if cast ~= nil then return false end
-
-    local headToJoint = headJointPos - headPos
-    local cast = castArgs:Cast(headPos + .02 * headToJoint, headToJoint)
-    if cast ~= nil then return false end
-
-    local tailToJoint = tailJointPos - tailPos
-    local cast = castArgs:Cast(tailPos + .02 * tailToJoint, tailToJoint)
-    if cast ~= nil then return false end
-
-    return true
+    model.PrimaryPart.BrickColor = snap and Config.PIPE_COLORS.hologramValid or Config.PIPE_COLORS.default
 end
 
 
@@ -205,11 +67,11 @@ function updatePipeBpColor(model: Model, valid: boolean, snap: boolean)
     local color
 
     if not valid then
-        color = config.PIPE_COLORS.hologramInvalid
+        color = Config.PIPE_COLORS.hologramInvalid
     elseif snap then
-        color = config.PIPE_COLORS.hologramValid
+        color = Config.PIPE_COLORS.hologramValid
     else
-        color = config.PIPE_COLORS.default
+        color = Config.PIPE_COLORS.default
     end
 
     for _, part: BasePart in pairs(model:GetDescendants()) do
@@ -220,21 +82,9 @@ function updatePipeBpColor(model: Model, valid: boolean, snap: boolean)
 end
 
 
-function realizePipeBp(model: Model, headSnap: Snap, tailSnap: Snap)
-    -- solidifies the pipe blueprint hologram into a physical pipe
-    local primaryPart = model.PrimaryPart
-
-    -- Solidify the hologram
+function solidifyBlueprint(model: Model)
     for _, part in pairs(model:GetDescendants()) do
         if part:IsA("BasePart") then
-            part.Anchored = false
-
-            -- let each part be welded to the primary part
-            local weld = Instance.new('WeldConstraint')
-            weld.Parent = part
-            weld.Part0 = primaryPart
-            weld.Part1 = part
-
             part.CanQuery = true
 
             if part.Name == "PipeSnap" then continue end
@@ -246,30 +96,14 @@ function realizePipeBp(model: Model, headSnap: Snap, tailSnap: Snap)
 
             -- return colorable parts to default coloring
             if part:GetAttribute("doNotRecolor") ~= true then
-                part.BrickColor = config.PIPE_COLORS.default
+                part.BrickColor = Config.PIPE_COLORS.default
             end
         end
-    end
-
-    -- TODO: pipe anchor state needs to be based on snapping
-    primaryPart.Anchored = true
-
-    -- disabling the snaps from being used again
-    -- TODO: need mechanism to re-enable snaps when pipe are destroyed
-
-    if headSnap.snap ~= nil then
-        headSnap.snap.CanQuery = false -- remote snap
-        model.Head.PipeSnap.CanQuery = false -- local snap
-    end
-
-    if tailSnap.snap ~= nil then
-        tailSnap.snap.CanQuery = false -- remote snap
-        model.Tail.PipeSnap.CanQuery = false -- local snap
     end
 end
 
 
-function getMouseTarget(): Snap?
+function getMouseTarget(): Placement?
     -- Get mouse position in 3D space
     local mousePos = UserInputService:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -300,7 +134,7 @@ function getMouseTarget(): Snap?
             pos = pivot.Position,
             up = pivot.UpVector,
             forward = pivot.LookVector,
-            snap = snap,
+            canSnap = true
         }
     end
     
@@ -312,7 +146,7 @@ function getMouseTarget(): Snap?
             pos = cast2.Position,
             up = cast2.Normal,
             forward = nil,
-            snap = nil
+            canSnap = false
         }
     end
     
@@ -322,21 +156,22 @@ end
 
 ----------------------------------
 --  Coroutines
+-- TODO: extract resourceful coroutine
 ----------------------------------
 
 
-local deferCleanup: {() -> nil} = {}
+local clickConnection: RBXScriptConnection? = nil
+local pipeHologram: Model?
+local snapHologram: Model?
 
 
 function pipeCoro()
-    local activeCast: Snap?
+    local activeCast: Placement?
+    local headCast: Placement?
+    local tailCast: Placement?
+    local validShape = false
 
-    local headCast: Snap?
-    local tailCast: Snap?
-    local validShape = true
-
-    local connection
-    connection = UserInputService.InputBegan:Connect(function(input)
+    clickConnection = UserInputService.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
             if activeCast == nil then return end
 
@@ -344,20 +179,10 @@ function pipeCoro()
                 headCast = activeCast
             elseif validShape then
                 tailCast = activeCast
-                connection:Disconnect()
+                clickConnection:Disconnect()
             end
         end
     end)
-
-    local pipeHologram: Model?
-    local snapHologram: Model?
-
-    deferCleanup[#deferCleanup + 1] = function()
-        connection:Disconnect()
-        -- this has the hologram destroyed
-        pipeHologram = maintainHologram(pipeModel, pipeHologram, false)
-        snapHologram = maintainHologram(snapIndicatorModel, snapHologram, false)
-    end
     
     while headCast == nil or tailCast == nil do
         local nextCast = getMouseTarget()
@@ -373,14 +198,12 @@ function pipeCoro()
         snapHologram = maintainHologram(snapIndicatorModel, snapHologram, headCast == nil)
         pipeHologram = maintainHologram(pipeModel, pipeHologram, headCast ~= nil)
 
-        local canSnap = nextCast.snap ~= nil
-
         if headCast == nil then
             -- the canSnap parameter refers to the existence of a PipeSnap
-            updateSnapIndicator(snapHologram, nextCast.pos, canSnap)
+            updateSnapIndicator(snapHologram, nextCast.pos, nextCast.canSnap)
         else
-            validShape = updatePipeBpShape(pipeHologram, headCast, nextCast)
-            updatePipeBpColor(pipeHologram, validShape, canSnap)
+            validShape = PipeBuilder.shape(pipeHologram, headCast, nextCast)
+            updatePipeBpColor(pipeHologram, validShape, nextCast.canSnap)
         end
 
         -- setting the activeSnap enables the click listener
@@ -389,8 +212,14 @@ function pipeCoro()
         task.wait() -- yield to next frame
     end
 
-    realizePipeBp(pipeHologram, headCast, tailCast)
-    pipeHologram = nil -- prevents further modification
+    solidifyBlueprint(pipeHologram)
+    local hologramCopy = pipeHologram
+    pipeHologram = nil
+    
+    coroutine.wrap(function()
+        pipePlaceRemote:InvokeServer(headCast, tailCast)
+        hologramCopy:Destroy()
+    end)()
 end
 
 
@@ -403,17 +232,18 @@ local buildThread: thread? = nil
 
 
 -- kill a running coroutine
-function tryKillCoro()
-    if buildThread ~= nil then
-        task.cancel(buildThread)
+function softKillCoro()
+    if buildThread == nil then return end
+    task.cancel(buildThread)
 
-        -- iterate deferCleanup to remove open connections
-        for _, cleanup in pairs(deferCleanup) do
-            cleanup()
-        end
-
-        deferCleanup = {}
+    if clickConnection ~= nil then
+        clickConnection:Disconnect()
+        clickConnection = nil
     end
+
+    pipeHologram = maintainHologram(pipeModel, pipeHologram, false)
+    snapHologram = maintainHologram(snapIndicatorModel, snapHologram, false)
+    buildThread = nil
 end
 
 
@@ -421,19 +251,19 @@ function startCoro(coro)
     -- this guarantees proper handling of resources
     -- dead? --> start coroutine
     -- alive? --> kill & restart coroutine
-    tryKillCoro()
+    softKillCoro()
     buildThread = task.spawn(coro)
 end
 
 
 UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == config.KEYBINDS.cancel then
-        tryKillCoro()
+    if input.KeyCode == Config.KEYBINDS.cancel then
+        softKillCoro()
     end
 end)
 
 local bindToCoro = {
-    {config.KEYBINDS.pipe, pipeCoro}
+    {Config.KEYBINDS.pipe, pipeCoro}
 }
 
 for _, bind in pairs(bindToCoro) do

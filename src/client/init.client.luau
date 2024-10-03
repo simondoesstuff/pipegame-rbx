@@ -1,7 +1,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local config = require(script.config)
+local shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(shared:WaitForChild("config"))
 
-local SNAP_RADIUS = config.SNAP_RADIUS
+local SNAP_RADIUS = Config.SNAP_RADIUS
 
 -- Adjusts all PipeSnap radii at start time for the client only.
 -- This enables the client to configure this value later if desired.

@@ -1,3 +1,5 @@
+-- TODO: config needs to be lazy initialized on client based on merge
+-- Thus, some of these fields need to be extracted
 return {
     SNAP_RADIUS = 2,
     MAX_PIPE_LENGTH = 20,
