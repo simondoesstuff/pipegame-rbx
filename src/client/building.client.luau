@@ -10,10 +10,20 @@ local camera = workspace.CurrentCamera
 
 -- TODO: these blocking calls should be moved into corresponding coroutines.
 --     OK for now because almost all systems depend on these resources
---     so the bottleneck is not incurring a strong performance hit.
+--     so the bottleneck is not incurring a strong performance delta.
 local models = ReplicatedStorage:WaitForChild("Models")
 local pipeModel = models:WaitForChild("Pipe")
 local snapIndicatorModel = models:WaitForChild("SnapIndicator")
+
+
+-- Snap encapsulates information regarding potential snap points
+-- but is overloaded for the case of a position without snap
+type Snap = {
+    pos: Vector3,
+    up: Vector3,
+    forward: Vector3?,
+    snap: BasePart?
+}
 
 
 function maintainHologram(reference: Model, active: Model?, viable: boolean): Model?
@@ -262,16 +272,6 @@ function realizePipeBp(model: Model, headSnap: Snap, tailSnap: Snap)
 end
 
 
--- Snap encapsulates information regarding potential snap points
--- but is overloaded for the case of a position without snap
-type Snap = {
-    pos: Vector3,
-    up: Vector3,
-    forward: Vector3?,
-    snap: BasePart?
-}
-
-
 function getMouseTarget(): Snap?
     -- Get mouse position in 3D space
     local mousePos = UserInputService:GetMouseLocation()
@@ -337,13 +337,6 @@ local deferCleanup: {() -> nil} = {}
 function pipeCoro()
     local activeCast: Snap?
 
-    -- don't start primary algorithm until at least one
-    -- valid mouse position has been found
-    while activeCast == nil do
-        activeCast = getMouseTarget()
-        task.wait()
-    end
-
     local headCast: Snap?
     local tailCast: Snap?
     local validShape = true
@@ -371,14 +364,14 @@ function pipeCoro()
         pipeHologram = maintainHologram(pipeModel, pipeHologram, false)
         snapHologram = maintainHologram(snapIndicatorModel, snapHologram, false)
     end
-
+    
     while headCast == nil or tailCast == nil do
         local nextCast = getMouseTarget()
 
         -- only process frames with motion
         -- posA ~= posB not sufficient due to floating point error
         if nextCast == nil or
-            (nextCast.pos - activeCast.pos).Magnitude < 0.1 then
+            activeCast ~= nil and (nextCast.pos - activeCast.pos).Magnitude < 0.1 then
                 task.wait()
                 continue
         end
