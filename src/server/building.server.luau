@@ -79,6 +79,7 @@ pipePlaceRemote.OnServerInvoke = function(sender: Player, headSnap: Placement, t
 
     solidyBlueprint(model)
     weldSnaps(model)
+    weldSnaps(model)
     model.Parent = Workspace
 
     -- disabling the snaps from being used again
