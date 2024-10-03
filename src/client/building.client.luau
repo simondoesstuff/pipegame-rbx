@@ -31,6 +31,14 @@ local KEYBINDS = {
 }
 
 
+-- TODO: extract
+function projByNormal(vector: Vector3, normal: Vector3)
+    -- Projects a vector into the plane of the normal.
+    normal = normal.Unit
+    return vector - normal:Dot(vector) * normal
+end
+
+
 function maintainHologram(reference: Model, active: Model?, viable: boolean): Model?
     if not viable then
         if active ~= nil then
@@ -73,7 +81,7 @@ function updateSnapIndicator(model: Model, pos: Vector3?, snap: boolean?)
 end
 
 
-function updatePipeBpShape(model: Model, headSnap: Snap?, tailSnap: Snap?): boolean
+function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolean
     -- The entire model state is updated to match the source of truth.
     -- This prevents accumulative errors of any kind.
 
@@ -99,24 +107,17 @@ function updatePipeBpShape(model: Model, headSnap: Snap?, tailSnap: Snap?): bool
 
     -- 2. orientation inference and adjustment
 
-    local headDir = headSnap.forward
-    local tailDir = tailSnap.forward
-
     -- both to be initialized, definitively
     local headJointPos: Vector3?
     local tailJointPos: Vector3?
+    local headDir = headSnap.forward
+    local tailDir = tailSnap.forward
 
-    -- Case A: neither end point orientation is known: infer straight pipe
-    if headDir == nil and tailSnap.forward == nil then
-        local headToTail = tailPos - headPos
-        headDir = headToTail.Unit
-        tailDir = -headDir
-    end
-
-    -- Case B: both end point orientations are known: attempt no inference
+    -- Case A: both end point orientations are known: attempt no inference
 
     if headDir ~= nil then
         headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
+        -- cases B and C depend on this positioning
         headJointPos = headPart.Joint.Position
     end
 
@@ -125,16 +126,30 @@ function updatePipeBpShape(model: Model, headSnap: Snap?, tailSnap: Snap?): bool
         tailJointPos = tailPart.Joint.Position
     end
 
-    -- Case C: one end point orientation is known, and fixed: infer the other
+    if headDir == nil or tailDir == nil then
+        if headDir == nil and tailDir == nil then
+            -- Case B: neither end point orientation is known: infer straight pipe
+            local headToTail = tailPos - headPos
+            headDir = headToTail
+            tailDir = -headDir
+        else
+            -- Case C: one end point orientation is known, and fixed: infer the other
+            if headDir == nil then
+                headDir = tailJointPos - headPos
+            elseif tailDir == nil then
+                tailDir = headJointPos - tailPos
+            end
+        end
 
-    if headDir == nil then
-        headDir = tailJointPos - headPos
+        -- project into the plane of the normals
+        headDir = projByNormal(headDir, headSnap.up)
+        tailDir = projByNormal(tailDir, tailSnap.up)
+
+        -- place endpoints
+
         headPart:PivotTo(CFrame.lookAlong(headPos, headDir))
         headJointPos = headPart.Joint.Position
-    end
 
-    if tailDir == nil then
-        tailDir = headJointPos - tailPos
         tailPart:PivotTo(CFrame.lookAlong(tailPos, tailDir))
         tailJointPos = tailPart.Joint.Position
     end
@@ -299,43 +314,6 @@ function getMouseTarget(): Snap?
 end
 
 
-
--- function trySnap(): Snap?
---     -- Note: VeiewportPointToRay call can be reused from getMouseTarget
---     -- but it is a non-issue.
---     local mousePos = UserInputService:GetMouseLocation()
---     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-
---     -- Cast the ray
---     local raycastParams = RaycastParams.new()
---     raycastParams.IgnoreWater = true
---     raycastParams.CollisionGroup = "PipeSnap"
---     raycastParams.FilterType = Enum.RaycastFilterType.Exclude
---     raycastParams.FilterDescendantsInstances = { player.Character, pipeBlueprint }
-
---     local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
-
---     if raycastResult == nil then
---         return nil
---     end
-
---     local snapPart: BasePart = raycastResult.Instance
---     local snapPivot = snapPart:GetPivot()
---     local snapPos = snapPivot.Position
---     local snapDir = snapPivot.LookVector
-
---     if snapPos == nil then
---         error('snapPos is nil')
---     end
-
---     return {
---         pos = snapPos,
---         dir = snapDir,
---         part = snapPart
---     }
--- end
-
-
 ----------------------------------
 --  Coroutines
 ----------------------------------
@@ -372,7 +350,6 @@ function pipeCoro()
             print('click', headCast, tailCast) -- TODO: rm
             if headCast == nil then
                 headCast = activeCast
-                updateSnapIndicator(nil)
             elseif validShape then
                 tailCast = activeCast
                 connection:Disconnect()
@@ -400,7 +377,7 @@ function pipeCoro()
                 task.wait()
                 continue
         end
-        
+
         snapHologram = maintainHologram(snapIndicatorModel, snapHologram, headCast == nil)
         pipeHologram = maintainHologram(pipeModel, pipeHologram, headCast ~= nil)
 
