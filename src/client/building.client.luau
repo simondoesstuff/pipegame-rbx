@@ -2,6 +2,7 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local config = require(script.Parent.config)
 local projByNormal = require(script.Parent.utils.linearAlgebra).projByNormal
 
 local player = Players.LocalPlayer
@@ -13,21 +14,6 @@ local camera = workspace.CurrentCamera
 local models = ReplicatedStorage:WaitForChild("Models")
 local pipeModel = models:WaitForChild("Pipe")
 local snapIndicatorModel = models:WaitForChild("SnapIndicator")
-
-local MAX_PIPE_LENGTH = 20
-local MIN_PIPE_HINGE_ANGLE = math.cos(math.rad(70))
-local BLUEPRINT_TRANSPARENCY = 0.7
-local PIPE_COLORS = {
-    default = BrickColor.new("Medium brown"),
-    hologramValid = BrickColor.new("Shamrock"),
-    hologramInvalid = BrickColor.new("Burgundy")
-}
-local KEYBINDS = {
-    cancel = Enum.KeyCode.Escape,
-    pipe = Enum.KeyCode.Z,
-    junct3 = Enum.KeyCode.X,
-    junct4 = Enum.KeyCode.C
-}
 
 
 function maintainHologram(reference: Model, active: Model?, viable: boolean): Model?
@@ -57,7 +43,7 @@ function maintainHologram(reference: Model, active: Model?, viable: boolean): Mo
 
                 part.CanCollide = false
                 part.CastShadow = false
-                part.Transparency = BLUEPRINT_TRANSPARENCY
+                part.Transparency = config.BLUEPRINT_TRANSPARENCY
             end
         end
     end
@@ -68,7 +54,7 @@ end
 
 function updateSnapIndicator(model: Model, pos: Vector3?, snap: boolean?)
     model:MoveTo(pos)
-    model.PrimaryPart.BrickColor = snap and PIPE_COLORS.hologramValid or PIPE_COLORS.default
+    model.PrimaryPart.BrickColor = snap and config.PIPE_COLORS.hologramValid or config.PIPE_COLORS.default
 end
 
 
@@ -158,7 +144,7 @@ function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolea
     -- 4. checking for validity of placement
     -- TODO: VULNERABILITY: placement validity needs to be moved to server side
 
-    if pipeLength > MAX_PIPE_LENGTH then
+    if pipeLength > config.MAX_PIPE_LENGTH then
         return false
     end
 
@@ -171,11 +157,11 @@ function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolea
     -- A dot B = |A| * |B| * cos(theta)
     -- as A and B get more aligned, theta decreases, cos(theta) increases.
     -- Consider cosine "similarity"
-    if shaftVec.Unit:Dot(-headDir.Unit) > MIN_PIPE_HINGE_ANGLE then
+    if shaftVec.Unit:Dot(-headDir.Unit) > config.MIN_PIPE_HINGE_ANGLE then
         return false
     end
 
-    if shaftVec.Unit:Dot(tailDir.Unit) > MIN_PIPE_HINGE_ANGLE then
+    if shaftVec.Unit:Dot(tailDir.Unit) > config.MIN_PIPE_HINGE_ANGLE then
         return false
     end
     
@@ -183,6 +169,7 @@ function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolea
     -- NOTE: this will not check intersections that partially clip. This ONLY
     -- ensures pipes can not outright go straight through walls. This is very
     -- fast and forgiving, but not perfectly accurate.
+    -- TODO: pipe intersection test can be fooled if head is placed in wall
 
     local castArgs = RaycastParams.new()
     castArgs.IgnoreWater = true
@@ -211,11 +198,11 @@ function updatePipeBpColor(model: Model, valid: boolean, snap: boolean)
     local color
 
     if not valid then
-        color = PIPE_COLORS.hologramInvalid
+        color = config.PIPE_COLORS.hologramInvalid
     elseif snap then
-        color = PIPE_COLORS.hologramValid
+        color = config.PIPE_COLORS.hologramValid
     else
-        color = PIPE_COLORS.default
+        color = config.PIPE_COLORS.default
     end
 
     for _, part: BasePart in pairs(model:GetDescendants()) do
@@ -252,7 +239,7 @@ function realizePipeBp(model: Model, headSnap: Snap, tailSnap: Snap)
 
             -- return colorable parts to default coloring
             if part:GetAttribute("doNotRecolor") ~= true then
-                part.BrickColor = PIPE_COLORS.default
+                part.BrickColor = config.PIPE_COLORS.default
             end
         end
     end
@@ -345,11 +332,6 @@ end
 
 
 local deferCleanup: {() -> nil} = {}
-
-
-function junct3Coro()
-    error('not implemented') -- TODO:
-end
 
 
 function pipeCoro()
@@ -458,14 +440,13 @@ end
 
 
 UserInputService.InputBegan:Connect(function(input)
-    if input.KeyCode == KEYBINDS.cancel then
+    if input.KeyCode == config.KEYBINDS.cancel then
         tryKillCoro()
     end
 end)
 
 local bindToCoro = {
-    {KEYBINDS.pipe, pipeCoro},
-    {KEYBINDS.junct3, junct3Coro}
+    {config.KEYBINDS.pipe, pipeCoro}
 }
 
 for _, bind in pairs(bindToCoro) do
