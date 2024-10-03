@@ -154,7 +154,7 @@ function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolea
         tailJointPos = tailPart.Joint.Position
     end
 
-    local shaftVec = headJointPos - tailJointPos
+    local shaftVec = tailJointPos - headJointPos
     local pipeLength = shaftVec.Magnitude
 
     -- 3. adjust pipe shaft to fit distance
@@ -177,16 +177,30 @@ function updatePipeBpShape(model: Model, headSnap: Snap, tailSnap: Snap): boolea
     --      |        |   (endVec)
     -- (startVec)
 
-    shaftVec = shaftVec.Unit
-
     -- A dot B = |A| * |B| * cos(theta)
     -- as A and B get more aligned, theta decreases, cos(theta) increases.
     -- Consider cosine "similarity"
-    if shaftVec:Dot(headDir.Unit) > MIN_PIPE_HINGE_ANGLE then
+    if shaftVec.Unit:Dot(-headDir.Unit) > MIN_PIPE_HINGE_ANGLE then
         return false
     end
 
-    if shaftVec:Dot(-tailDir.Unit) > MIN_PIPE_HINGE_ANGLE then
+    if shaftVec.Unit:Dot(tailDir.Unit) > MIN_PIPE_HINGE_ANGLE then
+        return false
+    end
+    
+    -- do a raycast through the shaft to get an approximation for intersetions
+    -- NOTE: this will not check intersections on the endpoints, within the
+    -- elbow point or even in the shaft, if to a partial degree. This ONLY
+    -- ensures pipes can not outright go straight through walls. This is very
+    -- fast and forgiving, but not perfectly accurate.
+
+    local castArgs = RaycastParams.new()
+    castArgs.IgnoreWater = true
+    castArgs.FilterType = Enum.RaycastFilterType.Exclude
+    castArgs.FilterDescendantsInstances = { model }
+    local cast = workspace:Raycast(headJointPos, shaftVec, castArgs)
+    
+    if cast ~= nil then
         return false
     end
 
@@ -279,22 +293,30 @@ function getMouseTarget(): Snap?
     -- Get mouse position in 3D space
     local mousePos = UserInputService:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
-
-    -- Cast the ray
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    local origin = ray.Origin
+    local dir = ray.Direction * 1000
+    
+    -- Here we cast two rays, one for two possibe collision groups:
+    --   PipeSnap
+    --   Default
+    -- It is possible to get the parts of PipeSnap and use the exclude
+    -- filter to do a single raycast, but this appraoch likely has no
+    -- associated cost or even an improvement because each raycast is
+    -- individually faster in theory. This also enables set logic to be
+    -- done in other parts of the code using the collision groups. 
+    
+    -- Cast ray 1
+    local castArgs = RaycastParams.new()
+    castArgs.FilterType = Enum.RaycastFilterType.Exclude
     -- snapIndicator does not to be ignored because it can not be queried
-    raycastParams.FilterDescendantsInstances = { player.Character }
-    raycastParams.IgnoreWater = true
+    castArgs.FilterDescendantsInstances = { player.Character }
+    castArgs.IgnoreWater = true
 
-    local raycastResult = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+    castArgs.CollisionGroup = "PipeSnap"
+    local cast1 = workspace:Raycast(origin, dir, castArgs)
 
-    if raycastResult == nil then
-        return nil
-    end
-
-    if raycastResult.Instance.Name == "PipeSnap" then
-        local snap: BasePart = raycastResult.Instance
+    if cast1 ~= nil then
+        local snap: BasePart = cast1.Instance
         local pivot = snap:GetPivot()
 
         return {
@@ -304,13 +326,20 @@ function getMouseTarget(): Snap?
             snap = snap,
         }
     end
-
-    return {
-        pos = raycastResult.Position,
-        up = raycastResult.Normal,
-        forward = nil,
-        snap = nil
-    }
+    
+    castArgs.CollisionGroup = "Default"
+    local cast2 = workspace:Raycast(origin, dir, castArgs)
+    
+    if cast2 ~= nil then
+        return {
+            pos = cast2.Position,
+            up = cast2.Normal,
+            forward = nil,
+            snap = nil
+        }
+    end
+    
+    return nil
 end
 
 
@@ -415,11 +444,6 @@ local buildThread: thread? = nil
 function tryKillCoro()
     if buildThread ~= nil then
         task.cancel(buildThread)
-
-        if model ~= nil then
-            model:Destroy()
-            model = nil
-        end
 
         -- iterate deferCleanup to remove open connections
         for _, cleanup in pairs(deferCleanup) do
