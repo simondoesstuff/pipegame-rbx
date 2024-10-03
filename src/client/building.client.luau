@@ -2,8 +2,6 @@ local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local waitForInput = require(script.Parent.utils.waitForInput)
-local mouseUtils = require(script.Parent.utils.mouseUtils)
 local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
@@ -365,6 +363,7 @@ function pipeCoro()
     -- valid mouse position has been found
     while activeCast == nil do
         activeCast = getMouseTarget()
+        task.wait()
     end
 
     local headCast: Snap?
@@ -393,6 +392,7 @@ function pipeCoro()
         connection:Disconnect()
         -- this has the hologram destroyed
         pipeHologram = maintainHologram(pipeModel, pipeHologram, false)
+        snapHologram = maintainHologram(snapIndicatorModel, snapHologram, false)
     end
 
     print('beginning loop')
