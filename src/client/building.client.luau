@@ -103,7 +103,7 @@ function solidifyBlueprint(model: Model)
 end
 
 
-function getMouseTarget(): Placement?
+function getMouseTarget(exclude)
     -- Get mouse position in 3D space
     local mousePos = UserInputService:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -122,6 +122,7 @@ function getMouseTarget(): Placement?
     -- Cast ray 1
     local castArgs = Cast.new()
     castArgs.IgnorePlayers = true
+    castArgs.Exclude = exclude
 
     castArgs.CollisionGroup = "PipeSnap"
     local cast1 = castArgs:Cast(origin, dir)
@@ -134,7 +135,8 @@ function getMouseTarget(): Placement?
             pos = pivot.Position,
             up = pivot.UpVector,
             forward = pivot.LookVector,
-            canSnap = true
+            canSnap = true,
+            snap = snap
         }
     end
     
@@ -146,7 +148,8 @@ function getMouseTarget(): Placement?
             pos = cast2.Position,
             up = cast2.Normal,
             forward = nil,
-            canSnap = false
+            canSnap = false,
+            snap = nil
         }
     end
     
@@ -185,7 +188,12 @@ function pipeCoro()
     end)
     
     while headCast == nil or tailCast == nil do
-        local nextCast = getMouseTarget()
+        local exclude
+        if headCast ~= nil then
+            exclude = {headCast.snap}
+        end
+
+        local nextCast = getMouseTarget(exclude)
 
         -- only process frames with motion
         -- posA ~= posB not sufficient due to floating point error

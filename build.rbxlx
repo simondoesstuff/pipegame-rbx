@@ -81,18 +81,18 @@
 			<Properties>
 				<BinaryString name="AttributesSerialize"></BinaryString>
 				<CoordinateFrame name="CFrame">
-					<X>-254.124664</X>
-					<Y>19.9244576</Y>
-					<Z>176.362885</Z>
-					<R00>-0.361278623</R00>
-					<R01>0.659345806</R01>
-					<R02>-0.659348845</R02>
-					<R10>-1.49011612e-08</R10>
-					<R11>0.707108438</R11>
-					<R12>0.70710516</R12>
-					<R20>0.932457924</R20>
-					<R21>0.255461991</R21>
-					<R22>-0.255463153</R22>
+					<X>-254.001678</X>
+					<Y>19.668869</Y>
+					<Z>177.981934</Z>
+					<R00>0.679733515</R00>
+					<R01>0.424896896</R01>
+					<R02>-0.597850382</R02>
+					<R10>-0</R10>
+					<R11>0.815110683</R11>
+					<R12>0.57930541</R12>
+					<R20>0.733459234</R20>
+					<R21>-0.393773317</R21>
+					<R22>0.554058015</R22>
 				</CoordinateFrame>
 				<Ref name="CameraSubject">null</Ref>
 				<token name="CameraType">0</token>
@@ -1588,35 +1588,6 @@ gcLgc4RKxr21zq2UlJSM]]></BinaryString>
 					<Z>7.5999999</Z>
 				</Vector3>
 			</Properties>
-			<Item class="WeldConstraint" referent="RBXFD89AC68855343AA808D243A9637CAA7">
-				<Properties>
-					<BinaryString name="AttributesSerialize"></BinaryString>
-					<CoordinateFrame name="CFrame0">
-						<X>0</X>
-						<Y>-3.20000029</Y>
-						<Z>3.80001831</Z>
-						<R00>1</R00>
-						<R01>0</R01>
-						<R02>0</R02>
-						<R10>0</R10>
-						<R11>1</R11>
-						<R12>0</R12>
-						<R20>0</R20>
-						<R21>0</R21>
-						<R22>1</R22>
-					</CoordinateFrame>
-					<SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
-					<bool name="DefinesCapabilities">false</bool>
-					<UniqueId name="HistoryId">00000000000000000000000000000000</UniqueId>
-					<string name="Name">WeldConstraint</string>
-					<Ref name="Part0Internal">RBX41507D8A45EB4973988D3B5BA582CD3D</Ref>
-					<Ref name="Part1Internal">RBX93A51F5E6A7F4E9D9F13394EA7FC22F4</Ref>
-					<int64 name="SourceAssetId">-1</int64>
-					<int name="State">3</int>
-					<BinaryString name="Tags"></BinaryString>
-					<UniqueId name="UniqueId">700c356b6e7a1b9e0708b3d90000acc0</UniqueId>
-				</Properties>
-			</Item>
 		</Item>
 		<Item class="Part" referent="RBX2C099AABF68848A89C8B7B2F41D348CA">
 			<Properties>
@@ -2298,7 +2269,7 @@ function solidifyBlueprint(model: Model)
 end
 
 
-function getMouseTarget(): Placement?
+function getMouseTarget(exclude)
     -- Get mouse position in 3D space
     local mousePos = UserInputService:GetMouseLocation()
     local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
@@ -2317,6 +2288,7 @@ function getMouseTarget(): Placement?
     -- Cast ray 1
     local castArgs = Cast.new()
     castArgs.IgnorePlayers = true
+    castArgs.Exclude = exclude
 
     castArgs.CollisionGroup = "PipeSnap"
     local cast1 = castArgs:Cast(origin, dir)
@@ -2329,7 +2301,8 @@ function getMouseTarget(): Placement?
             pos = pivot.Position,
             up = pivot.UpVector,
             forward = pivot.LookVector,
-            canSnap = true
+            canSnap = true,
+            snap = snap
         }
     end
     
@@ -2341,7 +2314,8 @@ function getMouseTarget(): Placement?
             pos = cast2.Position,
             up = cast2.Normal,
             forward = nil,
-            canSnap = false
+            canSnap = false,
+            snap = nil
         }
     end
     
@@ -2380,7 +2354,7 @@ function pipeCoro()
     end)
     
     while headCast == nil or tailCast == nil do
-        local nextCast = getMouseTarget()
+        local nextCast = getMouseTarget({headCast.snap})
 
         -- only process frames with motion
         -- posA ~= posB not sufficient due to floating point error
@@ -2815,13 +2789,13 @@ return Public]]></ProtectedString>
 						<Content name="LinkedSource"><null></null></Content>
 						<string name="Name">raycast</string>
 						<string name="ScriptGuid">{156F16C4-B5FA-445B-80B1-6F38D56895E2}</string>
-						<ProtectedString name="Source"><![CDATA[local players = game:GetService("Players"):GetPlayers()
+						<ProtectedString name="Source"><![CDATA[local Players = game:GetService("Players")
 
 
 function playersSet()
     local playerSet = {}
     
-    for _, player in ipairs(players) do
+    for _, player in ipairs(Players:GetPlayers()) do
         local char = player.Character
 
         -- only loaded characters are relevant
@@ -2843,7 +2817,7 @@ export type Cast = {
 }
 
 
-local Cast = {}
+local Cast: Cast = {}
 
 
 function Cast.new()
@@ -8325,6 +8299,35 @@ function solidyBlueprint(model)
 end
 
 
+function weldSnaps(model: Model)
+    local params = OverlapParams.new()
+    params.CollisionGroup = "PipeSnap"
+
+    for _, domestic in pairs(model:GetDescendants()) do
+        if domestic.CollisionGroup ~= "PipeSnap" then continue end
+        domestic.CanQuery = false
+
+        local neighbors = workspace:GetPartBoundsInRadius(domestic.Position, 0.2)
+
+        if #neighbors > 1 then
+            warn("Attemping to join one pipe snap to multiple others.")
+        end
+        
+        for _, foreign in pairs(neighbors) do
+            -- TODO: this is a hacky way to check if an assembly is a hologram
+            if foreign.AssemblyRootPart.Transparency < 1 then continue end
+
+            local weld = Instance.new('WeldConstraint')
+            weld.Parent = domestic
+            weld.Part0 = domestic
+            weld.Part1 = foreign
+            
+            foreign.CanQuery = false
+        end
+    end
+end
+
+
 pipePlaceRemote.OnServerInvoke = function(sender: Player, headSnap: Placement, tailSnap: Placement)
     local model = pipeModel:Clone()
     local valid = PipeBuilder.shape(model, headSnap, tailSnap)
@@ -8336,6 +8339,7 @@ pipePlaceRemote.OnServerInvoke = function(sender: Player, headSnap: Placement, t
     end
 
     solidyBlueprint(model)
+    weldSnaps(model)
     model.Parent = Workspace
 
     -- disabling the snaps from being used again
